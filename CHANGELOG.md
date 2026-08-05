@@ -5,6 +5,23 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [0.2.0] - 2026-08-05
+
+### Added
+
+- **Handoffs**: pass `handoffs=[...]` (bare `Agent` instances, or `handoff()` for
+  customization) to `Agent(...)` to let one agent transfer a conversation to a
+  specialized agent. Routing, memory/context transfer, tool usage, and structured
+  output all continue automatically in the target agent. New `AgentResult.last_agent`
+  reports which agent actually produced the final answer. New exceptions
+  `CircularHandoffError`, `MaxHandoffDepthExceededError`, `InvalidHandoffTargetError`.
+
+### Changed
+
+- `agent.chat()` has been removed. The SDK now exposes a single execution method:
+  `agent.run(interactive=True)` starts the same interactive terminal loop.
+  `agent.run("...")` is unchanged.
+
 ## [0.1.0] - 2026-08-04
 
 ### Changed
