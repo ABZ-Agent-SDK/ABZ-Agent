@@ -15,32 +15,18 @@ BANNER = "Welcome To ABZ Agent SDK"
 
 TEMPLATE_AGENT = """\
 from dotenv import load_dotenv
-load_dotenv()  # reads {api_var} from .env or env
-import os
-from abzagent import Agent, Memory
+from abzagent import Agent , Memory
 
-{api_var} = os.getenv("{api_var}")
+load_dotenv()
 
-def main():
-    agent = Agent(
-        name={agent_name!r},
-        instructions={instructions!r},
-        model={model!r},
-        memory=Memory(),
-        api_key={api_var}
-    )
-    
-    print("🤖 Agent started. Type 'exit' to quit.")
-    while True:
-        user_input = input("> ")
-        if user_input.lower() in ('exit', 'quit'):
-            print("👋 Goodbye!")
-            break
-        response = agent.run(user_input)
-        print("Agent response:", response.content)
+agent = Agent(
+    name = "Assistant",
+    instructions = "You are a helpful assistant.",
+    memory = Memory(),
+    model = "llama-3.3-70b-versatile"
+)
 
-if __name__ == "__main__":
-    main()
+result = agent.run(interactive=True)
 """
 
 
@@ -83,7 +69,7 @@ def _cmd_setup() -> int:
 
     if provider == "groq":
         api_var = "GROQ_API_KEY"
-        default_model = "llama-3.1-8b-instant"
+        default_model = "llama-3.3-70b-versatile"
     else:
         api_var = "GEMINI_API_KEY"
         default_model = "gemini-2.0-flash"

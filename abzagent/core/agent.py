@@ -18,7 +18,7 @@ os.environ["GLOG_minloglevel"] = "3"
 os.environ["TF_CPP_MIN_LOG_LEVEL"] = "3"
 
 from .memory import Memory
-from .tools import Tool, ToolCall, function_tool
+from .tools import Tool, ToolCall, ToolSchema, tool_to_schema, function_tool
 from .output import AgentOutputSchema, ModelBehaviorError
 from .context import RunContextWrapper
 
@@ -33,6 +33,7 @@ try:
         MaxHandoffDepthExceededError,
         HandoffInputData,
         RECOMMENDED_PROMPT_PREFIX,
+        RECOMMENDED_PROMPT_PREFIX_NATIVE,
     )
     handoff = handoff_factory  # ✅ public alias
 except Exception as _handoffs_import_error:
@@ -43,6 +44,7 @@ except Exception as _handoffs_import_error:
     MaxHandoffDepthExceededError = RuntimeError
     HandoffInputData = None
     RECOMMENDED_PROMPT_PREFIX = ""
+    RECOMMENDED_PROMPT_PREFIX_NATIVE = ""
     _handoffs_err = _handoffs_import_error
 
     def handoff(agent):
@@ -58,9 +60,12 @@ except Exception:
     def run_output_guardrails(*args, **kwargs): return None
 
 from ..config import SDKConfig
+from ..providers.base import GenerationResult
 from ..providers.gemini import GeminiProvider
 from ..providers.groq import GroqProvider
 
+# Fallback-mode only (provider.supports_native_tools is False): teaches the
+# JSON-blob tool-calling convention that _maybe_parse_toolcall() looks for.
 BASE_SYSTEM_PROMPT = (
     "You are the ABZ Agent SDK runtime.\n"
     "When you need a TOOL, output ONLY a single JSON object on ONE line, with NO markdown/backticks/extra text:\n"
@@ -68,6 +73,10 @@ BASE_SYSTEM_PROMPT = (
     "When replying to the user, DO NOT include any tool JSON—reply only with the final answer text.\n"
     "Use ONLY tool names exactly as given in the tools manifest."
 )
+
+# Native-tool-calling mode: no JSON-blob convention to teach — the provider's
+# own tool-calling mechanism handles that structurally.
+BASE_SYSTEM_PROMPT_NATIVE = "You are the ABZ Agent SDK runtime."
 
 InstructionsFn = Callable[[RunContextWrapper, "Agent"], Union[str, Awaitable[str]]]
 
@@ -288,15 +297,12 @@ class Agent:
         if self.max_iterations <= 1:
             effective_instructions = self._resolve_instructions(ctx_for_run)
             prompt = self._build_prompt(user_message, effective_instructions=effective_instructions)
-            model_out = self.provider.generate(
-                prompt, output_schema=self._output_schema, strict=not bool(self.tools)
-            )
+            result = self._generate_and_dispatch(prompt)
 
-            model_out = self._normalize_output(model_out)
-            steps.append(model_out)
-
-            tool_call = self._maybe_parse_toolcall(model_out) if self.tools else None
+            tool_call = result.tool_calls[0] if result.tool_calls else None
             if tool_call:
+                call_repr = json.dumps({"tool": tool_call.tool, "args": tool_call.args})
+                steps.append(call_repr)
                 tool = self.tools.get(tool_call.tool)
                 if tool is not None and getattr(tool, "is_handoff", False):
                     return self._perform_handoff(
@@ -304,8 +310,10 @@ class Agent:
                     )
                 obs = self._execute_tool(tool_call)
                 self.memory.remember("tool", obs)
-                return AgentResult(content=obs, steps=[model_out, obs], last_agent=self)
+                return AgentResult(content=obs, steps=[call_repr, obs], last_agent=self)
 
+            model_out = self._normalize_output(result.text)
+            steps.append(model_out)
             final_text, parsed = self._resolve_output(model_out, base_prompt=prompt, steps=steps)
             return AgentResult(content=final_text, steps=steps, parsed=parsed, last_agent=self)
 
@@ -317,14 +325,12 @@ class Agent:
                 effective_instructions=effective_instructions,
             )
 
-            raw_out = self.provider.generate(
-                prompt, output_schema=self._output_schema, strict=not bool(self.tools)
-            )
-            model_out = self._normalize_output(raw_out)
-            steps.append(model_out)
+            result = self._generate_and_dispatch(prompt)
 
-            tool_call = self._maybe_parse_toolcall(model_out) if self.tools else None
+            tool_call = result.tool_calls[0] if result.tool_calls else None
             if tool_call:
+                call_repr = json.dumps({"tool": tool_call.tool, "args": tool_call.args})
+                steps.append(call_repr)
                 tool = self.tools.get(tool_call.tool)
                 if tool is not None and getattr(tool, "is_handoff", False):
                     return self._perform_handoff(
@@ -335,6 +341,8 @@ class Agent:
                 user_message = f"TOOL RESULT ({tool_call.tool}): {obs}"
                 continue
 
+            model_out = self._normalize_output(result.text)
+            steps.append(model_out)
             final_text, parsed = self._resolve_output(model_out, base_prompt=prompt, steps=steps)
             return AgentResult(content=final_text, steps=steps, parsed=parsed, last_agent=self)
 
@@ -443,7 +451,7 @@ class Agent:
                 raw = self.provider.generate(
                     repair_prompt, output_schema=self._output_schema, strict=not bool(self.tools)
                 )
-                current_text = self._normalize_output(raw)
+                current_text = self._normalize_output(raw.text)
                 steps.append(current_text)
 
         raise last_error
@@ -541,13 +549,17 @@ class Agent:
         return f"Invalid arguments: {ve}"
 
     def _build_prompt(self, user_message: str, *, effective_instructions: str) -> str:
+        native = self.provider.supports_native_tools
+        base = BASE_SYSTEM_PROMPT_NATIVE if native else BASE_SYSTEM_PROMPT
         system = (
-            f"{BASE_SYSTEM_PROMPT}\n\n"
+            f"{base}\n\n"
             f"[AGENT NAME]: {self.name}\n"
             f"[INSTRUCTIONS]: {effective_instructions}\n"
             f"[MODEL]: {self.model}\n"
         )
-        if self.tools:
+        # In native mode, tools are advertised to the provider structurally
+        # (see _generate_and_dispatch) — a text manifest would be redundant.
+        if self.tools and not native:
             manifest = ["Available TOOLS:"]
             for n, t in self.tools.items():
                 desc = (t.description or "").strip().replace("\n", " ")
@@ -555,13 +567,38 @@ class Agent:
             system += "\n" + "\n".join(manifest)
 
         if self._handoffs:
-            system += "\n\n" + RECOMMENDED_PROMPT_PREFIX
+            system += "\n\n" + (RECOMMENDED_PROMPT_PREFIX_NATIVE if native else RECOMMENDED_PROMPT_PREFIX)
 
         if self._output_schema is not None and not self._output_schema.is_plain_text:
             system += "\n\n" + self._output_schema.prompt_instructions()
 
         history = self.memory.to_prompt()
         return f"[SYSTEM]: {system}\n\n{history}\n\n[USER]: {user_message}"
+
+    def _generate_and_dispatch(self, prompt: str) -> GenerationResult:
+        """
+        Calls the provider once and returns a GenerationResult with either
+        `.text` or `.tool_calls` populated — regardless of whether the
+        provider used native tool calling or the prompt+regex fallback.
+        Callers (both _run() branches) never need to know which mode
+        produced the result.
+        """
+        native = self.provider.supports_native_tools
+        tool_schemas = [tool_to_schema(t) for t in self.tools.values()] if (native and self.tools) else None
+
+        result = self.provider.generate(
+            prompt,
+            tools=tool_schemas,
+            output_schema=self._output_schema,
+            strict=not bool(self.tools),
+        )
+
+        if not native and not result.tool_calls and result.text:
+            tool_call = self._maybe_parse_toolcall(result.text)
+            if tool_call:
+                return GenerationResult(tool_calls=[tool_call])
+
+        return result
 
     def _maybe_parse_toolcall(self, text: str) -> Optional[ToolCall]:
         blob = _extract_json_blob(text.strip())

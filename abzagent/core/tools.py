@@ -34,6 +34,30 @@ class ToolCall:
     args: Dict[str, Any]
 
 
+@dataclass
+class ToolSchema:
+    """Provider-agnostic tool definition — what gets translated into each
+    provider's native function/tool-calling request shape."""
+    name: str
+    description: str
+    parameters: Dict[str, Any]  # JSON Schema
+
+
+_PERMISSIVE_SCHEMA: Dict[str, Any] = {
+    "type": "object",
+    "properties": {},
+    "additionalProperties": True,
+}
+
+
+def tool_to_schema(tool: "Tool") -> ToolSchema:
+    """Build a ToolSchema from a Tool for native provider tool-calling."""
+    parameters = (
+        tool.schema.model_json_schema() if tool.schema is not None else dict(_PERMISSIVE_SCHEMA)
+    )
+    return ToolSchema(name=tool.name, description=tool.description or "", parameters=parameters)
+
+
 class Tool:
     """
     Base Tool interface used by the Agent.

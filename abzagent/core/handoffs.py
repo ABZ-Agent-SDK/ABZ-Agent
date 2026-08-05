@@ -28,6 +28,19 @@ Return ONLY a JSON object for the tool call, e.g.:
 After delegating, do not repeat the answer yourself.
 """
 
+# Used only in native-tool-calling mode (Agent._build_prompt(), gated on
+# provider.supports_native_tools). The provider's own tool-calling mechanism
+# already handles HOW to invoke a transfer; this only needs to teach the
+# model WHEN to — no JSON-formatting instructions, unlike
+# RECOMMENDED_PROMPT_PREFIX above, which stays exactly as-is since it's
+# publicly re-exported via extensions/handoff_prompt.py.
+RECOMMENDED_PROMPT_PREFIX_NATIVE = """\
+You can delegate this conversation to another, more specialized agent by \
+calling the appropriate transfer tool. Do this when a specialized agent is \
+clearly better suited to handle the request than you are. After delegating, \
+do not also answer yourself — the transfer is the complete action.
+"""
+
 MAX_HANDOFF_DEPTH = 5
 
 

@@ -5,19 +5,16 @@ on its own — arithmetic, the current time, a web search, a database lookup, et
 
 ## How tool-calling works in this SDK
 
-ABZ Agent SDK does not use the native function-calling / tool-use APIs of Gemini or Groq.
-Instead, every registered tool's `name` and `description` are listed in a
-`"Available TOOLS:"` manifest injected into the system prompt (see
-`Agent._build_prompt`). The model is instructed (via `BASE_SYSTEM_PROMPT`) that when it
-wants to call a tool, it must output **only** a single-line JSON object of the form:
+ABZ Agent SDK uses each provider's **native function/tool-calling API** when the provider
+supports it (`ModelProvider.supports_native_tools` — `True` for both Gemini and Groq
+today). Every registered tool's `name`, `description`, and JSON Schema (from the tool's
+Pydantic `schema`, via `Tool.schema.model_json_schema()` — see `tool_to_schema()` in
+`core/tools.py`) are translated into the provider's own tool-definition format and sent
+structurally alongside the prompt, not as text. When the model calls a tool, it comes back
+as a real field on the response (`GenerationResult.tool_calls`), extracted by
+`Agent._generate_and_dispatch()` — no text parsing involved.
 
-```json
-{"tool": "tool_name", "args": {"key": "value"}}
-```
-
-`Agent._maybe_parse_toolcall()` scans the model's raw text output for the first
-`{...}`/`[...]` blob via regex, attempts `json.loads` on it, and — if it parses as a dict
-with a `"tool"` key — treats it as a tool call. The SDK then:
+The SDK then, regardless of which mode produced the call:
 
 1. Looks the tool up by name in `self.tools` (a `dict[str, Tool]`).
 2. Validates/coerces the `args` dict into keyword arguments using the tool's Pydantic `schema` (`tool.parse_args`).
@@ -25,9 +22,13 @@ with a `"tool"` key — treats it as a tool call. The SDK then:
 4. Records the result into `Memory` with role `"tool"`.
 5. In single-turn mode, returns the tool's result directly as `AgentResult.content`. In multi-step mode, feeds the result back in as the next iteration's prompt context.
 
-This means tool selection reliability depends entirely on the model reliably emitting that
-exact JSON convention — there is no structured, provider-enforced tool schema being sent
-over the wire.
+**Fallback (only for a provider with `supports_native_tools = False`)**: every registered
+tool's `name`/`description` are listed in a `"Available TOOLS:"` manifest injected into the
+system prompt, the model is instructed (via `BASE_SYSTEM_PROMPT`) to output a single-line
+JSON object `{"tool": "tool_name", "args": {...}}`, and `Agent._maybe_parse_toolcall()`
+regex-extracts and parses it from the raw text. This path is fully functional but not what
+you'll hit with Gemini or Groq — it exists for a hypothetical future provider without
+native tool-calling support.
 
 ## Import
 
@@ -45,8 +46,10 @@ class ToolCall:
     args: Dict[str, Any]
 ```
 
-Produced internally by `Agent._maybe_parse_toolcall()` after parsing a tool-call JSON blob
-out of the model's text output. You generally don't construct this yourself.
+Produced internally — either directly from a provider's native tool-calling response
+(`GenerationResult.tool_calls`), or, in fallback mode, by `Agent._maybe_parse_toolcall()`
+parsing a tool-call JSON blob out of the model's text output. You generally don't construct
+this yourself.
 
 ## `Tool` — the base interface
 

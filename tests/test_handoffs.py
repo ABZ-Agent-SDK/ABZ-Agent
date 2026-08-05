@@ -6,6 +6,10 @@ handoffs, max depth, invalid targets, memory/context preservation, shared-memory
 non-duplication, tool compatibility, structured-output compatibility, backward
 compatibility, on_handoff/input_type, graceful bad-args, input_filter, and the
 pre-existing unknown-tool error path (regression guard).
+
+Provider mocks return GenerationResult (native tool-calling shape) rather than
+bare JSON-blob strings — tests assert against the semantic ToolCall, not a
+fallback-path serialization detail.
 """
 import os
 import pytest
@@ -16,6 +20,8 @@ os.environ.setdefault("GROQ_API_KEY", "fake-key-for-tests")
 
 from abzagent import Agent, AgentResult
 from abzagent.providers.gemini import GeminiProvider
+from abzagent.providers.base import GenerationResult
+from abzagent.core.tools import ToolCall
 from abzagent.core.handoffs import (
     handoff,
     CircularHandoffError,
@@ -28,18 +34,21 @@ from abzagent.extensions.handoffs_filter import remove_all_tools, keep_last_n_tu
 
 
 def _scripted_provider(responses):
-    """responses: {agent_name: response_text_or_list_of_texts}. Each generate()
-    call is routed by matching '[AGENT NAME]: <name>' in the prompt; list values
-    are consumed in order across successive calls to the same agent."""
+    """responses: {agent_name: item_or_list_of_items}, where each item is either
+    a plain text string (-> GenerationResult(text=...)) or a ToolCall (->
+    GenerationResult(tool_calls=[...])). Each generate() call is routed by
+    matching '[AGENT NAME]: <name>' in the prompt; list values are consumed in
+    order across successive calls to the same agent."""
     calls = {"log": []}
 
-    def fake_generate(self, prompt, *, output_schema=None, strict=True):
+    def fake_generate(self, prompt, *, tools=None, output_schema=None, strict=True):
         for name, resp in responses.items():
             if f"[AGENT NAME]: {name}" in prompt:
                 calls["log"].append(name)
-                if isinstance(resp, list):
-                    return resp.pop(0)
-                return resp
+                item = resp.pop(0) if isinstance(resp, list) else resp
+                if isinstance(item, ToolCall):
+                    return GenerationResult(tool_calls=[item])
+                return GenerationResult(text=item)
         raise AssertionError(f"No scripted response matched prompt:\n{prompt}")
 
     return fake_generate, calls
@@ -50,7 +59,7 @@ def _patch_provider(monkeypatch):
     # Each test sets abzagent.providers.gemini.GeminiProvider.generate itself via
     # _scripted_provider; this fixture just ensures a clean default so a test that
     # forgets to patch fails loudly instead of hanging on a real network call.
-    def unset_generate(self, prompt, *, output_schema=None, strict=True):
+    def unset_generate(self, prompt, *, tools=None, output_schema=None, strict=True):
         raise AssertionError("Test forgot to patch GeminiProvider.generate")
 
     monkeypatch.setattr(GeminiProvider, "generate", unset_generate)
@@ -67,7 +76,7 @@ class TestSingleHandoff:
         support = make_agent("Support", handoffs=[billing])
 
         fake, _ = _scripted_provider({
-            "Support": '{"tool":"transfer_to_billing","args":{"message":"Needs an invoice."}}',
+            "Support": ToolCall(tool="transfer_to_billing", args={"message": "Needs an invoice."}),
             "Billing": "Sure, I can help with your invoice.",
         })
         monkeypatch.setattr(GeminiProvider, "generate", fake)
@@ -80,7 +89,7 @@ class TestSingleHandoff:
         billing = make_agent("Billing")
         support = make_agent("Support", handoffs=[billing])
         fake, _ = _scripted_provider({
-            "Support": '{"tool":"transfer_to_billing","args":{}}',
+            "Support": ToolCall(tool="transfer_to_billing", args={}),
             "Billing": "Done.",
         })
         monkeypatch.setattr(GeminiProvider, "generate", fake)
@@ -106,7 +115,7 @@ class TestMultipleHandoffs:
         planner = make_agent("Planner", handoffs=[research, writer, review])
 
         fake, calls = _scripted_provider({
-            "Planner": '{"tool":"transfer_to_writer","args":{}}',
+            "Planner": ToolCall(tool="transfer_to_writer", args={}),
             "Research": "should not be called",
             "Writer": "writer handled it",
             "Review": "should not be called",
@@ -133,7 +142,7 @@ class TestMultipleHandoffs:
         )
 
         fake, _ = _scripted_provider({
-            "Planner": '{"tool":"transfer_to_research","args":{"message":"Look into X."}}',
+            "Planner": ToolCall(tool="transfer_to_research", args={"message": "Look into X."}),
             "Research": "Here is what I found about X.",
         })
         monkeypatch.setattr(GeminiProvider, "generate", fake)
@@ -150,8 +159,8 @@ class TestNestedHandoffs:
         a = make_agent("A", handoffs=[b])
 
         fake, _ = _scripted_provider({
-            "A": '{"tool":"transfer_to_b","args":{}}',
-            "B": '{"tool":"transfer_to_c","args":{}}',
+            "A": ToolCall(tool="transfer_to_b", args={}),
+            "B": ToolCall(tool="transfer_to_c", args={}),
             "C": "final answer from C",
         })
         monkeypatch.setattr(GeminiProvider, "generate", fake)
@@ -171,7 +180,7 @@ class TestCircularAndDepth:
         a.tools[handoff(a).to_tool(a).name] = handoff(a).to_tool(a)
         a._handoffs.append(handoff(a))
 
-        fake, _ = _scripted_provider({"A": '{"tool":"transfer_to_a","args":{}}'})
+        fake, _ = _scripted_provider({"A": ToolCall(tool="transfer_to_a", args={})})
         monkeypatch.setattr(GeminiProvider, "generate", fake)
 
         with pytest.raises(CircularHandoffError):
@@ -185,8 +194,8 @@ class TestCircularAndDepth:
         a._handoffs.append(a_handoff_to_b)
 
         fake, _ = _scripted_provider({
-            "A": '{"tool":"transfer_to_b","args":{}}',
-            "B": '{"tool":"transfer_to_a","args":{}}',
+            "A": ToolCall(tool="transfer_to_b", args={}),
+            "B": ToolCall(tool="transfer_to_a", args={}),
         })
         monkeypatch.setattr(GeminiProvider, "generate", fake)
 
@@ -201,9 +210,9 @@ class TestCircularAndDepth:
         a = make_agent("A", handoffs=[b])
 
         fake, _ = _scripted_provider({
-            "A": '{"tool":"transfer_to_b","args":{}}',
-            "B": '{"tool":"transfer_to_c","args":{}}',
-            "C": '{"tool":"transfer_to_d","args":{}}',
+            "A": ToolCall(tool="transfer_to_b", args={}),
+            "B": ToolCall(tool="transfer_to_c", args={}),
+            "C": ToolCall(tool="transfer_to_d", args={}),
             "D": "should never be reached",
         })
         monkeypatch.setattr(GeminiProvider, "generate", fake)
@@ -231,7 +240,7 @@ class TestMemoryAndContext:
         billing = make_agent("Billing")
         support = make_agent("Support", handoffs=[billing])
         fake, _ = _scripted_provider({
-            "Support": '{"tool":"transfer_to_billing","args":{"message":"context note"}}',
+            "Support": ToolCall(tool="transfer_to_billing", args={"message": "context note"}),
             "Billing": "ok",
         })
         monkeypatch.setattr(GeminiProvider, "generate", fake)
@@ -247,7 +256,7 @@ class TestMemoryAndContext:
         support = make_agent("Support", memory=shared, handoffs=[billing])
 
         fake, _ = _scripted_provider({
-            "Support": '{"tool":"transfer_to_billing","args":{}}',
+            "Support": ToolCall(tool="transfer_to_billing", args={}),
             "Billing": "ok",
         })
         monkeypatch.setattr(GeminiProvider, "generate", fake)
@@ -270,7 +279,7 @@ class TestMemoryAndContext:
             handoffs=[handoff(billing, on_handoff=on_handoff)],
         )
         fake, _ = _scripted_provider({
-            "Support": '{"tool":"transfer_to_billing","args":{}}',
+            "Support": ToolCall(tool="transfer_to_billing", args={}),
             "Billing": "ok",
         })
         monkeypatch.setattr(GeminiProvider, "generate", fake)
@@ -290,9 +299,9 @@ class TestToolCompatibility:
         support = make_agent("Support", handoffs=[billing])
 
         fake, _ = _scripted_provider({
-            "Support": '{"tool":"transfer_to_billing","args":{}}',
+            "Support": ToolCall(tool="transfer_to_billing", args={}),
             "Billing": [
-                '{"tool":"lookup_price","args":{"item":"widget"}}',
+                ToolCall(tool="lookup_price", args={"item": "widget"}),
                 "The widget costs $10.",
             ],
         })
@@ -311,7 +320,7 @@ class TestToolCompatibility:
 
         agent = make_agent("Solo", tools=[noop_tool])
         fake, _ = _scripted_provider({
-            "Solo": '{"tool":"totally_made_up_tool","args":{}}',
+            "Solo": ToolCall(tool="totally_made_up_tool", args={}),
         })
         monkeypatch.setattr(GeminiProvider, "generate", fake)
 
@@ -330,7 +339,7 @@ class TestStructuredOutputCompatibility:
         support = make_agent("Support", handoffs=[billing])
 
         fake, _ = _scripted_provider({
-            "Support": '{"tool":"transfer_to_billing","args":{}}',
+            "Support": ToolCall(tool="transfer_to_billing", args={}),
             "Billing": '{"item": "widget", "price": 10}',
         })
         monkeypatch.setattr(GeminiProvider, "generate", fake)
@@ -385,7 +394,7 @@ class TestOnHandoffAndInputType:
         )
 
         fake, _ = _scripted_provider({
-            "Support": '{"tool":"transfer_to_escalation","args":{"reason":"angry customer"}}',
+            "Support": ToolCall(tool="transfer_to_escalation", args={"reason": "angry customer"}),
             "Escalation": "handled",
         })
         monkeypatch.setattr(GeminiProvider, "generate", fake)
@@ -406,7 +415,7 @@ class TestOnHandoffAndInputType:
         )
 
         fake, _ = _scripted_provider({
-            "Support": '{"tool":"transfer_to_escalation","args":{}}',  # missing "reason"
+            "Support": ToolCall(tool="transfer_to_escalation", args={}),  # missing "reason"
         })
         monkeypatch.setattr(GeminiProvider, "generate", fake)
 
@@ -431,8 +440,8 @@ class TestInputFilter:
 
         fake, _ = _scripted_provider({
             "Support": [
-                '{"tool":"noop_tool","args":{"x":"noise"}}',
-                '{"tool":"transfer_to_billing","args":{}}',
+                ToolCall(tool="noop_tool", args={"x": "noise"}),
+                ToolCall(tool="transfer_to_billing", args={}),
             ],
             "Billing": "ok",
         })
@@ -447,7 +456,7 @@ class TestInputFilter:
         support = make_agent("Support", handoffs=[handoff(billing, input_filter=keep_last_n_turns(1))])
 
         fake, _ = _scripted_provider({
-            "Support": '{"tool":"transfer_to_billing","args":{}}',
+            "Support": ToolCall(tool="transfer_to_billing", args={}),
             "Billing": "ok",
         })
         monkeypatch.setattr(GeminiProvider, "generate", fake)

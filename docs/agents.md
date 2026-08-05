@@ -5,16 +5,25 @@ system prompt (`instructions`), an LLM provider/model, an optional set of `tools
 optional `Memory` buffer, and exposes a single entrypoint — `run()` — that drives one
 question/answer (or multi-step tool-using) cycle.
 
-> **How it actually works under the hood:** ABZ Agent SDK does **not** use the native
-> function-calling APIs of Gemini or Groq. Instead, `Agent` builds one flat text prompt
-> (system instructions + a manifest of available tools + conversation history + the user
-> message), sends it to the provider's plain text-generation endpoint, and then scans the
-> model's raw text output for a single-line JSON object of the shape
-> `{"tool": "<name>", "args": {...}}`. If one is found, the SDK executes the matching tool
-> and (in multi-step mode) feeds the result back in as the next turn. This is a convention
-> enforced entirely through the system prompt, not a provider-level tool-calling contract.
-> Keep this in mind when debugging: if a model ever prints extra text around the JSON blob,
-> or wraps it in markdown fences, tool-call detection can fail.
+> **How it actually works under the hood:** `Agent` builds one flat text prompt (system
+> instructions + conversation history + the user message) each turn and calls
+> `provider.generate()`. Tool calls (including [Handoffs](#handoffs), which are just tools)
+> are detected using each provider's **native function/tool-calling API** when the provider
+> supports it — currently both Gemini and Groq do (`ModelProvider.supports_native_tools`,
+> `True` for both). Each registered `Tool`'s schema (via `Tool.schema.model_json_schema()`)
+> is translated into the provider's own tool-definition format and sent structurally
+> alongside the prompt; the tool call comes back as a real field on the response
+> (`GenerationResult.tool_calls`), not text to parse. This is far more reliable than text
+> parsing — the provider enforces the shape, not a prompt convention.
+>
+> A provider that genuinely lacks tool-calling support (`supports_native_tools = False`)
+> falls back to the older convention: a text manifest of tools is added to the system
+> prompt, and the model's raw output is scanned for a single-line JSON object shaped
+> `{"tool": "<name>", "args": {...}}`. This fallback path still exists and is fully
+> functional, but with both real providers supporting native calling, it's not the path
+> you'll hit in practice. Tool *results* are still fed back as plain text
+> (`TOOL RESULT (<tool>): <result>`) in both modes — this SDK doesn't (yet) model a full
+> native multi-turn tool-conversation transcript.
 
 ## Import
 
@@ -215,9 +224,10 @@ Controlled by `max_iterations` (default `1`):
 **Single-turn (`max_iterations <= 1`, the default)**
 
 1. Builds one prompt, calls the model once.
-2. If the model's output is a tool-call JSON blob, the tool is executed and its result
-   **becomes `AgentResult.content` directly** — there is no follow-up model call to turn the
-   tool result into a natural-language answer. `steps` will contain `[model_output, tool_result]`.
+2. If the model calls a tool (via native tool-calling, or the JSON-blob fallback
+   convention — see [Tools](tools.md)), the tool is executed and its result **becomes
+   `AgentResult.content` directly** — there is no follow-up model call to turn the tool
+   result into a natural-language answer. `steps` will contain `[tool_call_repr, tool_result]`.
 3. If the model's output is plain text, that text is `AgentResult.content` and `steps` contains just `[model_output]`.
 
 **Iterative (`max_iterations > 1`)**
@@ -226,7 +236,7 @@ Loops up to `max_iterations` times. On each pass:
 - The first iteration's prompt uses the real user message; every subsequent iteration's
   prompt uses the literal string `"Continue."` plus a `TOOL RESULT (<tool>): <result>` line
   appended to memory.
-- If the model emits a tool-call JSON blob, the tool runs and the loop continues.
+- If the model calls a tool, it runs and the loop continues.
 - If the model emits plain text, the loop ends and that text is the final `AgentResult.content`.
 - If `max_iterations` is exhausted without the model producing a plain-text answer, the
   result is the last step, prefixed with `"Reached iteration limit without final answer.\n\n"`.
@@ -361,9 +371,10 @@ the public API (`output_type` in, `result.parsed` out) is identical either way:
 ### Structured output + tools
 
 `output_type` and `tools` can be used together. While tools are active, the SDK does not
-lock generation to the exact output schema on every turn (a tool-call JSON blob needs to
-remain a valid response too) — schema validation only applies once the model produces its
-final, non-tool-call answer. One caveat inherited from the SDK's [prompt-based tool-calling
+lock generation to the exact output schema on every turn — schema-locking and native tool
+calling are never requested in the same provider call (see `strict` in the callout at the
+top of this page) — schema validation only applies once the model produces its final,
+non-tool-call answer. One caveat inherited from the SDK's [tool-calling
 convention](#agents): in **single-turn mode** (`max_iterations <= 1`), if the model's first
 response is a tool call, `AgentResult.content` becomes that tool's raw output directly (see
 [Single-turn vs. multi-step mode](#single-turn-vs-multi-step-mode)) and `result.parsed` stays
@@ -437,8 +448,9 @@ result.last_agent    # whichever agent actually produced it (e.g. the Writer age
 
 1. Each entry in `handoffs=[...]` is registered as a `transfer_to_<agent_name>` tool on the
    host agent (bare `Agent` instances are wrapped automatically; see below for the
-   `handoff()` factory for customization). This reuses the SDK's existing prompt-based
-   tool-call convention exactly — no new protocol.
+   `handoff()` factory for customization). This reuses the SDK's existing tool-calling
+   mechanism exactly — handoffs are detected and dispatched exactly like any other tool
+   call (native or fallback), no separate protocol.
 2. When the model calls a `transfer_to_...` tool, `Agent.run()` recognizes it as a handoff
    (rather than a normal tool) and, instead of feeding a tool result back into its own
    conversation, replays its conversation history into the target agent's `Memory` and

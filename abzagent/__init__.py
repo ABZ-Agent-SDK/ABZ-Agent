@@ -33,9 +33,10 @@ Public API:
 # ─────────────────────────────────────────────
 from .core.agent import Agent, AgentResult
 from .core.memory import Memory
-from .core.tools import Tool, ToolCall, function_tool
+from .core.tools import Tool, ToolCall, ToolSchema, tool_to_schema, function_tool
 from .core.output import AgentOutputSchema, ModelBehaviorError
 from .core.context import RunContextWrapper
+from .providers.base import GenerationResult, ModelProvider
 from .core.handoffs import (
     Handoff,
     handoff,
@@ -61,10 +62,14 @@ __all__ = [
     "Memory",
     "Tool",
     "ToolCall",
+    "ToolSchema",
+    "tool_to_schema",
     "function_tool",
     "AgentOutputSchema",
     "ModelBehaviorError",
     "RunContextWrapper",
+    "GenerationResult",
+    "ModelProvider",
     "Handoff",
     "handoff",
     "HandoffError",

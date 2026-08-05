@@ -2,9 +2,10 @@
 from __future__ import annotations
 from .agent import Agent, AgentResult  # noqa: F401
 from .memory import Memory  # noqa: F401
-from .tools import Tool, ToolCall, FunctionTool, function_tool  # noqa: F401
+from .tools import Tool, ToolCall, ToolSchema, tool_to_schema, FunctionTool, function_tool  # noqa: F401
 from .output import AgentOutputSchema, ModelBehaviorError  # noqa: F401
 from .context import RunContextWrapper  # noqa: F401
+from ..providers.base import GenerationResult, ModelProvider  # noqa: F401
 
 # Optional re-exports (guard if not present to avoid circulars during partial installs)
 try:
@@ -37,12 +38,14 @@ __all__ = [
     # Core
     "Agent", "AgentResult", "Memory",
     # Tools
-    "Tool", "ToolCall", "FunctionTool", "function_tool",
+    "Tool", "ToolCall", "ToolSchema", "tool_to_schema", "FunctionTool", "function_tool",
     # Structured output
     "AgentOutputSchema", "ModelBehaviorError",
     # Handoffs
     "Handoff", "handoff", "RunContextWrapper",
     "HandoffError", "CircularHandoffError", "MaxHandoffDepthExceededError", "HandoffInputData",
+    # Providers
+    "GenerationResult", "ModelProvider",
     # Optional
     "input_guardrail", "output_guardrail",
     "GuardrailFunctionOutput",

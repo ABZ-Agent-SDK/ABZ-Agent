@@ -26,12 +26,13 @@ os.environ.setdefault("GROQ_API_KEY", "fake-key-for-tests")
 
 from abzagent import Agent
 from abzagent.providers.gemini import GeminiProvider
+from abzagent.providers.base import GenerationResult
 
 
 @pytest.fixture
 def agent(monkeypatch):
-    def fake_generate(self, prompt, *, output_schema=None, strict=True):
-        return "canned response"
+    def fake_generate(self, prompt, *, tools=None, output_schema=None, strict=True):
+        return GenerationResult(text="canned response")
 
     monkeypatch.setattr(GeminiProvider, "generate", fake_generate)
     return Agent(name="Assistant", instructions="Be helpful.", model="gemini-2.0-flash")

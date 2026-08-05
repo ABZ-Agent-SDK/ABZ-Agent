@@ -25,9 +25,9 @@ setup(
     author="Abu Bakar",
     url="https://github.com/ABZAgent/abz-agents",
     project_urls={
-        "Homepage": "https://github.com/ABZAgent/abz-agents",
+        "Homepage": "https://abzagent.online/",
         "Issues": "https://github.com/ABZAgent/abz-agents/issues",
-        "Documentation": "https://abzagent.vercel.app",
+        "Documentation": "https://abzagent.online/docs/",
     },
     classifiers=[
         "Programming Language :: Python :: 3",
