@@ -20,23 +20,35 @@ os.environ["TF_CPP_MIN_LOG_LEVEL"] = "3"
 from .memory import Memory
 from .tools import Tool, ToolCall, function_tool
 from .output import AgentOutputSchema, ModelBehaviorError
+from .context import RunContextWrapper
 
 # optional handoffs import
 try:
-    from .handoffs import Handoff, handoff as handoff_factory, RunContextWrapper
+    from . import handoffs as _handoffs_module
+    from .handoffs import (
+        Handoff,
+        handoff as handoff_factory,
+        HandoffError,
+        CircularHandoffError,
+        MaxHandoffDepthExceededError,
+        HandoffInputData,
+        RECOMMENDED_PROMPT_PREFIX,
+    )
     handoff = handoff_factory  # ✅ public alias
-except Exception:
-    class RunContextWrapper:
-        def __init__(self, current_agent=None, target_agent=None, memory=None, steps=None, context=None):
-            self.current_agent = current_agent
-            self.target_agent = target_agent
-            self.memory = memory
-            self.steps = steps or []
-            self.context = context
-
+except Exception as _handoffs_import_error:
+    _handoffs_module = None
     Handoff = None
+    HandoffError = RuntimeError
+    CircularHandoffError = RuntimeError
+    MaxHandoffDepthExceededError = RuntimeError
+    HandoffInputData = None
+    RECOMMENDED_PROMPT_PREFIX = ""
+    _handoffs_err = _handoffs_import_error
+
     def handoff(agent):
-        raise RuntimeError("Handoffs not available; module missing.")
+        raise HandoffError(
+            f"Handoffs module failed to import (this indicates an SDK bug): {_handoffs_err}"
+        )
 
 # optional guardrails
 try:
@@ -61,10 +73,17 @@ InstructionsFn = Callable[[RunContextWrapper, "Agent"], Union[str, Awaitable[str
 
 
 class AgentResult:
-    def __init__(self, content: str, steps: List[str], parsed: Any = None):
+    def __init__(
+        self,
+        content: str,
+        steps: List[str],
+        parsed: Any = None,
+        last_agent: Optional["Agent"] = None,
+    ):
         self.content = content
         self.steps = steps
         self.parsed = parsed
+        self.last_agent = last_agent
 
 
 class Agent:
@@ -179,8 +198,73 @@ class Agent:
 
         return _AgentTool()
 
-    # ---------------- UPDATED run() ----------------
-    def run(self, user_message: str, *, context: Any = None) -> AgentResult:
+    # ---------------- run() ----------------
+    def run(
+        self,
+        user_message: Optional[str] = None,
+        *,
+        context: Any = None,
+        interactive: bool = False,
+    ) -> Optional[AgentResult]:
+        """
+        The SDK's single execution entrypoint.
+
+        - `agent.run("Hello")` — single request, returns an AgentResult (unchanged).
+        - `agent.run(interactive=True)` — starts an interactive terminal REPL that
+          calls this same method for every message; returns None when the session ends.
+        """
+        if interactive:
+            if user_message is not None:
+                raise ValueError(
+                    "Agent.run() cannot take both a user_message and interactive=True."
+                )
+            self._run_interactive(context=context)
+            return None
+
+        if user_message is None:
+            raise ValueError("Agent.run() requires a user_message when interactive=False.")
+
+        return self._run(user_message, context=context, _handoff_path=[])
+
+    def _run_interactive(self, *, context: Any = None) -> None:
+        """
+        Interactive terminal loop. A thin wrapper around run() — no inference
+        logic lives here, so every feature (memory, tools, structured output,
+        handoffs, future guardrails) works automatically since each turn is
+        just a normal self.run(user_input) call.
+        """
+        print(f"🤖 {self.name} started. Type 'exit' to quit.")
+        while True:
+            try:
+                user_input = input("> ").strip()
+            except (EOFError, KeyboardInterrupt):
+                print("\n👋 Goodbye!")
+                return
+
+            if not user_input:
+                continue
+            if user_input.lower() in ("exit", "quit"):
+                print("👋 Goodbye!")
+                return
+
+            try:
+                result = self.run(user_input, context=context)
+            except KeyboardInterrupt:
+                print("\n👋 Goodbye!")
+                return
+            except Exception as e:
+                print(f"[Error] {e}")
+                continue
+
+            print(f"{self.name}: {result.content}")
+
+    def _run(
+        self,
+        user_message: str,
+        *,
+        context: Any = None,
+        _handoff_path: Optional[List["Agent"]] = None,
+    ) -> AgentResult:
         steps: List[str] = []
         ctx_for_run = RunContextWrapper(
             current_agent=self,
@@ -213,12 +297,17 @@ class Agent:
 
             tool_call = self._maybe_parse_toolcall(model_out) if self.tools else None
             if tool_call:
+                tool = self.tools.get(tool_call.tool)
+                if tool is not None and getattr(tool, "is_handoff", False):
+                    return self._perform_handoff(
+                        tool, tool_call, steps=steps, context=context, _handoff_path=_handoff_path
+                    )
                 obs = self._execute_tool(tool_call)
                 self.memory.remember("tool", obs)
-                return AgentResult(content=obs, steps=[model_out, obs])
+                return AgentResult(content=obs, steps=[model_out, obs], last_agent=self)
 
             final_text, parsed = self._resolve_output(model_out, base_prompt=prompt, steps=steps)
-            return AgentResult(content=final_text, steps=steps, parsed=parsed)
+            return AgentResult(content=final_text, steps=steps, parsed=parsed, last_agent=self)
 
         # Iterative mode
         for _i in range(self.max_iterations):
@@ -236,16 +325,91 @@ class Agent:
 
             tool_call = self._maybe_parse_toolcall(model_out) if self.tools else None
             if tool_call:
+                tool = self.tools.get(tool_call.tool)
+                if tool is not None and getattr(tool, "is_handoff", False):
+                    return self._perform_handoff(
+                        tool, tool_call, steps=steps, context=context, _handoff_path=_handoff_path
+                    )
                 obs = self._execute_tool(tool_call)
                 self.memory.remember("tool", obs)
                 user_message = f"TOOL RESULT ({tool_call.tool}): {obs}"
                 continue
 
             final_text, parsed = self._resolve_output(model_out, base_prompt=prompt, steps=steps)
-            return AgentResult(content=final_text, steps=steps, parsed=parsed)
+            return AgentResult(content=final_text, steps=steps, parsed=parsed, last_agent=self)
 
         fallback = "Reached iteration limit without final answer.\n\n" + (steps[-1] if steps else "")
-        return AgentResult(content=fallback, steps=steps)
+        return AgentResult(content=fallback, steps=steps, last_agent=self)
+
+    def _perform_handoff(
+        self,
+        tool: Tool,
+        call: ToolCall,
+        *,
+        steps: List[str],
+        context: Any,
+        _handoff_path: Optional[List["Agent"]],
+    ) -> AgentResult:
+        handoff_obj: Handoff = tool.handoff
+        target: "Agent" = handoff_obj.target_agent
+        path = [*(_handoff_path or []), self]
+
+        max_depth = _handoffs_module.MAX_HANDOFF_DEPTH if _handoffs_module is not None else 5
+
+        if target in path:
+            chain = " -> ".join(a.name for a in path) + f" -> {target.name}"
+            raise CircularHandoffError(f"Circular handoff detected: {chain}")
+        if len(path) > max_depth:
+            chain = " -> ".join(a.name for a in path)
+            raise MaxHandoffDepthExceededError(
+                f"Handoff chain exceeded MAX_HANDOFF_DEPTH={max_depth}: {chain}"
+            )
+
+        try:
+            kwargs = tool.parse_args(call.args)
+        except ValueError as ve:
+            obs = self._format_validation_error(ve)
+            self.memory.remember("tool", obs)
+            return AgentResult(content=obs, steps=[*steps, obs], last_agent=self)
+
+        # Snapshot conversation history *before* recording the transfer breadcrumb,
+        # so that breadcrumb doesn't leak into the target's replayed copy.
+        input_data = HandoffInputData(messages=list(self.memory.load()))
+        if handoff_obj.input_filter is not None:
+            input_data = handoff_obj.input_filter(input_data)
+
+        if target.memory is not self.memory:
+            for m in input_data.messages:
+                target.memory.remember(m.role, m.content)
+
+        self.memory.remember("tool", f"Transferred conversation to '{target.name}'.")
+
+        input_instance = handoff_obj.input_type(**kwargs) if handoff_obj.input_type is not None else None
+
+        if handoff_obj.on_handoff is not None:
+            ctx_for_handoff = RunContextWrapper(
+                current_agent=self,
+                target_agent=target,
+                memory=self.memory,
+                steps=steps,
+                context=context,
+            )
+            try:
+                if input_instance is not None:
+                    handoff_obj.on_handoff(ctx_for_handoff, input_instance)
+                else:
+                    handoff_obj.on_handoff(ctx_for_handoff)
+            except Exception as e:
+                raise HandoffError(f"on_handoff callback for '{target.name}' raised: {e}") from e
+
+        continuation = kwargs.get("message") or (
+            f"You are now handling this conversation, transferred from '{self.name}'. "
+            "Review the conversation above and continue helping the user."
+        )
+
+        nested = target._run(continuation, context=context, _handoff_path=path)
+        nested.steps = [*steps, f"[HANDOFF] {self.name} -> {target.name}", *nested.steps]
+        return nested
 
     # ---------------- INTERNAL HELPERS ----------------
     def _resolve_output(self, model_out: str, *, base_prompt: str, steps: List[str]):
@@ -353,18 +517,28 @@ class Agent:
             if self.verbose:
                 print(f"Executing tool {call.tool} with kwargs={kwargs}")
             return tool.run(**kwargs)
-        except ValidationError as ve:
+        except ValueError as ve:
+            return self._format_validation_error(ve)
+        except Exception as e:
+            return f"[Tool Error] {e}"
+
+    def _format_validation_error(self, ve: ValueError) -> str:
+        # Tool.parse_args() wraps pydantic's ValidationError in a plain ValueError
+        # (`raise ValueError(...) from e`); unwrap it if present to get the nice
+        # per-field message, otherwise fall back to the raw error text.
+        source = ve if hasattr(ve, "errors") else getattr(ve, "__cause__", None)
+        if source is not None and hasattr(source, "errors"):
             missing_fields = []
-            for err in ve.errors():
+            for err in source.errors():
                 loc = err.get("loc", ["unknown"])
                 typ = err.get("type")
                 if typ == "missing":
                     missing_fields.append(loc[0])
                 elif typ.endswith("_parsing"):
                     missing_fields.append(f"{loc[0]} (invalid type)")
-            return f"I need the following information to proceed: {', '.join(missing_fields)}"
-        except Exception as e:
-            return f"[Tool Error] {e}"
+            if missing_fields:
+                return f"I need the following information to proceed: {', '.join(missing_fields)}"
+        return f"Invalid arguments: {ve}"
 
     def _build_prompt(self, user_message: str, *, effective_instructions: str) -> str:
         system = (
@@ -379,6 +553,9 @@ class Agent:
                 desc = (t.description or "").strip().replace("\n", " ")
                 manifest.append(f"- {n}: {desc}")
             system += "\n" + "\n".join(manifest)
+
+        if self._handoffs:
+            system += "\n\n" + RECOMMENDED_PROMPT_PREFIX
 
         if self._output_schema is not None and not self._output_schema.is_plain_text:
             system += "\n\n" + self._output_schema.prompt_instructions()

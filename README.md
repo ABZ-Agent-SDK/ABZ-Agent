@@ -26,6 +26,7 @@ pip install abz-agents
 - [Structured Output](#structured-output)
 - [Guardrails](#guardrails)
 - [Handoffs](#handoffs)
+- [Interactive Mode](#interactive-mode)
 - [Agent as a Tool](#agent-as-a-tool)
 - [Verbose Mode](#verbose-mode)
 - [CLI](#cli)
@@ -51,6 +52,12 @@ agent = Agent(
 
 result = agent.run("What is the capital of France?")
 print(result.content)
+```
+
+Or start an interactive terminal session with no loop to write yourself — same `run()`, no new method to learn:
+
+```python
+agent.run(interactive=True)
 ```
 
 ---
@@ -564,41 +571,84 @@ Both sync and async guardrail functions are supported. A guardrail must return a
 
 ## Handoffs
 
-Handoffs let one agent transfer a conversation to another specialized agent. Each handoff is automatically registered as a `handoff_to_<agent_name>` tool on the host agent.
+Handoffs let one agent transfer a conversation to another specialized agent — routing,
+memory, and context transfer are all automatic. Each handoff is registered as a
+`transfer_to_<agent_name>` tool on the host agent; the developer never manually manages
+routing.
 
 ```python
 from abzagent import Agent
-from abzagent.core.handoffs import handoff
 
-billing_agent = Agent(
-    name="billing",
-    instructions="You handle billing and payment questions.",
-    model="gemini-2.0-flash",
+research_agent = Agent(name="Research", instructions="Research topics thoroughly.")
+writer_agent = Agent(name="Writer", instructions="Write clear, engaging copy.")
+review_agent = Agent(name="Review", instructions="Review and polish drafts.")
+
+planner = Agent(
+    name="Planner",
+    instructions="Route tasks to the correct specialist.",
+    handoffs=[research_agent, writer_agent, review_agent],
 )
 
+result = planner.run("Write a short blog post about black holes.")
+print(result.content)
+print(result.last_agent.name)  # whichever agent actually produced the final answer
+```
+
+Bare `Agent` instances in `handoffs=[...]` are the common case. Use the `handoff()`
+factory when you need more control:
+
+```python
+from abzagent import Agent, handoff
+from pydantic import BaseModel
+
+class EscalationData(BaseModel):
+    reason: str
+
+def on_handoff(ctx, data: EscalationData):
+    print(f"Escalating: {data.reason}")
+
+billing_agent = Agent(name="Billing", instructions="Handle billing questions.")
+
 support_agent = Agent(
-    name="support",
-    instructions="You handle general support. Transfer billing questions to billing.",
-    model="gemini-2.0-flash",
-    handoffs=[handoff(billing_agent)],
+    name="Support",
+    instructions="Handle general support. Transfer billing questions to Billing.",
+    handoffs=[
+        handoff(
+            billing_agent,
+            input_type=EscalationData,   # LLM must supply a `reason` when handing off
+            on_handoff=on_handoff,        # called right before the transfer happens
+        ),
+    ],
 )
 
 result = support_agent.run("I need help with my invoice.")
 print(result.content)
 ```
 
+### Handoff errors
+
+- `CircularHandoffError` — an agent tried to hand off to one already in the chain (including itself).
+- `MaxHandoffDepthExceededError` — a handoff chain exceeded `abzagent.core.handoffs.MAX_HANDOFF_DEPTH` (default 5).
+- `InvalidHandoffTargetError` — raised immediately when `handoff(...)` is given something that isn't an `Agent`.
+
+All three are `RuntimeError` subclasses — the same category as guardrail tripwires (a
+structural safety trip, not a garden-variety model mistake). Bad handoff *arguments* from
+the model (e.g. a missing `input_type` field) degrade gracefully instead of raising, the
+same way a regular tool's bad arguments do.
+
 ### Handoff context filters
 
-Clean up conversation history before it is passed to the receiving agent:
+Clean up conversation history before it is passed to the receiving agent, via `input_filter=`:
 
 ```python
+from abzagent import handoff
 from abzagent.extensions.handoffs_filter import remove_all_tools, keep_last_n_turns
 
-# Remove tool messages from history
-filtered = remove_all_tools(handoff_data)
+# Remove tool messages from history before the target agent sees it
+handoff(billing_agent, input_filter=remove_all_tools)
 
-# Keep only last 3 user/assistant turns
-trimmed = keep_last_n_turns(3)(handoff_data)
+# Keep only the last 3 messages
+handoff(billing_agent, input_filter=keep_last_n_turns(3))
 ```
 
 ### Handoff prompt helper
@@ -614,6 +664,40 @@ instructions = prompt_with_handoff_instructions(
 
 agent = Agent(name="Triage", instructions=instructions, ...)
 ```
+
+---
+
+## Interactive Mode
+
+The SDK exposes a single execution method: `run()`. For a quick interactive session, skip
+writing the loop yourself — call `run(interactive=True)` instead of `run("...")`:
+
+```python
+from abzagent import Agent
+
+agent = Agent(
+    name="Assistant",
+    instructions="You are a helpful assistant.",
+    model="gemini-2.5-flash",
+)
+
+agent.run(interactive=True)
+```
+
+```
+🤖 Assistant started. Type 'exit' to quit.
+> hello
+Assistant: Hi there! How can I help you today?
+> exit
+👋 Goodbye!
+```
+
+Interactive mode is a thin wrapper that calls `run(user_input)` — the same method, same
+single-request code path — for every message. There's no separate logic to keep in sync:
+memory, tools, structured output, and handoffs all work automatically since each turn is
+just a normal `run()` call. It handles reading input, printing responses, `exit`/`quit`,
+and Ctrl+C for you, and keeps the session going instead of crashing if a single turn
+errors out.
 
 ---
 

@@ -1,15 +1,9 @@
 # abzagent/extensions/handoff_prompt.py
-RECOMMENDED_PROMPT_PREFIX = """\
-You can DELEGATE tasks to other specialized agents using tools named like:
-- transfer_to_<agent_name_slug>
+# Single source of truth lives in core/handoffs.py (Agent._build_prompt() auto-splices
+# this whenever an agent has handoffs configured — this re-export is for anyone who
+# wants to prepend it to instructions manually instead).
+from ..core.handoffs import RECOMMENDED_PROMPT_PREFIX  # noqa: F401
 
-When you decide another agent is better suited, call the correct transfer tool ONCE with any minimal context it needs. 
-Return ONLY a JSON object for the tool call, e.g.:
-
-{"tool":"transfer_to_refund_agent","args":{"message":"Customer is asking for a refund for order #123."}}
-
-After delegating, do not repeat the answer yourself.
-"""
 
 def prompt_with_handoff_instructions(prompt: str) -> str:
     return f"{RECOMMENDED_PROMPT_PREFIX}\n{prompt}"

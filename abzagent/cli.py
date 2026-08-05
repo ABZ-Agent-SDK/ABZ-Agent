@@ -83,7 +83,7 @@ def _cmd_setup() -> int:
 
     if provider == "groq":
         api_var = "GROQ_API_KEY"
-        default_model = "qwen/qwen3-32b"
+        default_model = "llama-3.1-8b-instant"
     else:
         api_var = "GEMINI_API_KEY"
         default_model = "gemini-2.0-flash"
@@ -129,7 +129,7 @@ def _cmd_setup() -> int:
     print(
         "\nNext steps:\n"
         f"  1) Ensure your .env has {api_var} set (or set the env var in your shell)\n"
-        f"  2) Run:  abz-agents run {filename}\n"
+        f"  2) Run: abz-agents run {filename}\n"
     )
     return 0
 

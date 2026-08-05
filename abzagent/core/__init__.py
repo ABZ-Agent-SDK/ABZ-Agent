@@ -4,12 +4,22 @@ from .agent import Agent, AgentResult  # noqa: F401
 from .memory import Memory  # noqa: F401
 from .tools import Tool, ToolCall, FunctionTool, function_tool  # noqa: F401
 from .output import AgentOutputSchema, ModelBehaviorError  # noqa: F401
+from .context import RunContextWrapper  # noqa: F401
 
 # Optional re-exports (guard if not present to avoid circulars during partial installs)
 try:
-    from .handoffs import Handoff, handoff, RunContextWrapper  # noqa: F401
+    from .handoffs import (  # noqa: F401
+        Handoff,
+        handoff,
+        HandoffError,
+        CircularHandoffError,
+        MaxHandoffDepthExceededError,
+        HandoffInputData,
+    )
 except Exception:
-    Handoff = handoff = RunContextWrapper = None  # type: ignore
+    Handoff = handoff = None  # type: ignore
+    HandoffError = CircularHandoffError = MaxHandoffDepthExceededError = None  # type: ignore
+    HandoffInputData = None  # type: ignore
 
 try:
     from .guardrails import (  # noqa: F401
@@ -30,8 +40,10 @@ __all__ = [
     "Tool", "ToolCall", "FunctionTool", "function_tool",
     # Structured output
     "AgentOutputSchema", "ModelBehaviorError",
-    # Optional
+    # Handoffs
     "Handoff", "handoff", "RunContextWrapper",
+    "HandoffError", "CircularHandoffError", "MaxHandoffDepthExceededError", "HandoffInputData",
+    # Optional
     "input_guardrail", "output_guardrail",
     "GuardrailFunctionOutput",
     "InputGuardrailTripwireTriggered", "OutputGuardrailTripwireTriggered",

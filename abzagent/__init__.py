@@ -35,6 +35,16 @@ from .core.agent import Agent, AgentResult
 from .core.memory import Memory
 from .core.tools import Tool, ToolCall, function_tool
 from .core.output import AgentOutputSchema, ModelBehaviorError
+from .core.context import RunContextWrapper
+from .core.handoffs import (
+    Handoff,
+    handoff,
+    HandoffError,
+    CircularHandoffError,
+    MaxHandoffDepthExceededError,
+    InvalidHandoffTargetError,
+    HandoffInputData,
+)
 
 # Optional: expose SDK config and providers
 from .config import SDKConfig
@@ -54,6 +64,14 @@ __all__ = [
     "function_tool",
     "AgentOutputSchema",
     "ModelBehaviorError",
+    "RunContextWrapper",
+    "Handoff",
+    "handoff",
+    "HandoffError",
+    "CircularHandoffError",
+    "MaxHandoffDepthExceededError",
+    "InvalidHandoffTargetError",
+    "HandoffInputData",
     "SDKConfig",
     "GeminiProvider",
     "GroqProvider",

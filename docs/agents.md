@@ -120,9 +120,9 @@ construction time; it will only surface as a provider-level error once `run()` i
 
 ## Public methods
 
-### `agent.run(user_message: str, *, context: Any = None) -> AgentResult`
+### `agent.run(user_message=None, *, context=None, interactive=False) -> AgentResult | None`
 
-The main entrypoint. One call to `run()`:
+The SDK's single execution entrypoint — for a single request, one call to `run(user_message)`:
 
 1. Wraps the call in a `RunContextWrapper(current_agent=self, target_agent=self, memory=self.memory, steps=[], context=context)`.
 2. Executes any `input_guardrails` (raises `InputGuardrailTripwireTriggered` if one trips).
@@ -131,6 +131,9 @@ The main entrypoint. One call to `run()`:
 
 `context` is an arbitrary value forwarded to dynamic instruction functions and guardrails
 through `RunContextWrapper.context` — it is not interpreted by the SDK itself.
+
+`run()` also supports an interactive terminal mode via `interactive=True`, covered right
+after `as_tool()` below.
 
 ### `agent.register_tool(tool: Tool | Callable) -> None`
 
@@ -141,6 +144,29 @@ the same name already exists, it is silently overwritten (`self.tools[t.name] = 
 ```python
 agent.register_tool(my_tool)
 ```
+
+### Interactive mode: `agent.run(interactive=True)`
+
+No manual `while True` / `input()` loop needed:
+
+```python
+agent = Agent(name="Assistant", instructions="You are a helpful assistant.")
+agent.run(interactive=True)
+```
+
+`interactive=True` starts a REPL that calls `run(user_input)` — this same method, in
+single-request mode — for every message; it returns `None` when the session ends rather
+than an `AgentResult`. There's no separate inference path: every feature that already
+works with `run("...")` (memory, tools, structured output, handoffs) works automatically
+in interactive mode too, because each turn just is a normal `run()` call.
+
+- Typing `exit` or `quit` (case-insensitive) ends the session with a goodbye message.
+- Ctrl+C or Ctrl+D/EOF at any point — including mid-request — exits cleanly instead of printing a traceback.
+- An exception from a turn's `run()` call (e.g. a transient provider error) is caught, printed
+  as `[Error] ...`, and the loop continues rather than crashing the whole session.
+- Blank input is silently skipped (re-prompts without calling `run()`).
+- `context` is forwarded to every per-turn `run()` call exactly as it would be if you called `run()` yourself.
+- Calling `run()` with neither a `user_message` nor `interactive=True`, or with both at once, raises `ValueError`.
 
 ### `agent.as_tool(*, tool_name: str, tool_description: str) -> Tool`
 
@@ -167,10 +193,14 @@ orchestrator = Agent(
 
 ```python
 class AgentResult:
-    content: str        # final text answer (raw JSON text when output_type is set)
-    steps: list[str]    # every raw model output / tool-result string, in call order
-    parsed: Any          # instance of output_type, or None if output_type wasn't set
+    content: str               # final text answer (raw JSON text when output_type is set)
+    steps: list[str]           # every raw model output / tool-result string, in call order
+    parsed: Any                 # instance of output_type, or None if output_type wasn't set
+    last_agent: Agent | None    # whichever agent actually produced `content` (see Handoffs)
 ```
+
+`last_agent` is `self` unless a [handoff](#handoffs) occurred, in which case it's whichever
+agent in the chain actually produced the final answer.
 
 ```python
 result = agent.run("What is 2 + 2?")
@@ -379,28 +409,130 @@ but `Agent.run()` never calls `run_output_guardrails()` on them.** Passing
 from an output guardrail, and `length_check`-style examples will silently do nothing. Treat
 output guardrails as not-yet-wired-up rather than enforced.
 
-## Handoffs (not currently functional)
+## Handoffs
 
-The SDK's public surface includes a `handoffs=` constructor argument and a
-`abzagent.core.handoffs.handoff()` factory intended to let one agent transfer a
-conversation to another specialized agent (each registered automatically as a
-`handoff_to_<agent_name>` tool). **In the current codebase this feature is broken**:
-`core/handoffs.py` imports from `core/abz_handoff_core.py`, a module that does not exist
-anywhere in the package. `Agent`'s import of the handoffs module is wrapped in a
-`try/except Exception`, so the failure is silently swallowed at import time and replaced
-with a stub:
+Set `handoffs=[...]` to let an agent transfer a conversation to another, more specialized
+agent — routing, memory, and context transfer are all automatic. The developer never
+manually manages routing.
 
 ```python
-def handoff(agent):
-    raise RuntimeError("Handoffs not available; module missing.")
+from abzagent import Agent
+
+research_agent = Agent(name="Research", instructions="Research topics thoroughly.")
+writer_agent = Agent(name="Writer", instructions="Write clear, engaging copy.")
+review_agent = Agent(name="Review", instructions="Review and polish drafts.")
+
+planner = Agent(
+    name="Planner",
+    instructions="Route tasks to the correct specialist.",
+    handoffs=[research_agent, writer_agent, review_agent],
+)
+
+result = planner.run("Write a short blog post about black holes.")
+result.content       # the specialist's answer
+result.last_agent    # whichever agent actually produced it (e.g. the Writer agent)
 ```
 
-Any code that calls `handoff(some_agent)` — including the pattern shown in older examples —
-will raise `RuntimeError("Handoffs not available; module missing.")` immediately. Do not
-document or demo the `handoffs=` parameter as working until `abz_handoff_core.py` is
-restored (and `HandoffInputData`, referenced by
-`abzagent/extensions/handoffs_filter.py`, is added to `handoffs.py` — that file also
-fails to import today for the same reason).
+### How it works
+
+1. Each entry in `handoffs=[...]` is registered as a `transfer_to_<agent_name>` tool on the
+   host agent (bare `Agent` instances are wrapped automatically; see below for the
+   `handoff()` factory for customization). This reuses the SDK's existing prompt-based
+   tool-call convention exactly — no new protocol.
+2. When the model calls a `transfer_to_...` tool, `Agent.run()` recognizes it as a handoff
+   (rather than a normal tool) and, instead of feeding a tool result back into its own
+   conversation, replays its conversation history into the target agent's `Memory` and
+   recursively calls the target agent's `run()`.
+3. The target agent's own `AgentResult` — its `content`, `parsed`, tools, everything — is
+   returned directly as the result of the *original* `run()` call. A target agent can
+   itself have `handoffs=[...]` and hand off further; chains are supported.
+4. `result.last_agent` always reflects whichever agent actually produced `result.content`,
+   even through a multi-hop chain.
+
+A handoff-aware prompt hint is automatically added to the system prompt whenever an agent
+has `handoffs=[...]` configured — you don't need to write "you can transfer this
+conversation" into `instructions` yourself.
+
+### The `handoff()` factory (customization)
+
+A bare `Agent` in `handoffs=[...]` covers the common case. Use `handoff()` for more control:
+
+```python
+from abzagent import Agent, handoff
+from pydantic import BaseModel
+
+class EscalationData(BaseModel):
+    reason: str
+
+def on_handoff(ctx, data: EscalationData):
+    print(f"Escalating: {data.reason}")
+
+support_agent = Agent(
+    name="Support",
+    instructions="Handle general support.",
+    handoffs=[
+        handoff(
+            billing_agent,
+            tool_name_override="escalate_to_billing",   # default: transfer_to_<slug(name)>
+            tool_description_override="Escalate billing issues.",
+            input_type=EscalationData,   # LLM must supply these fields to trigger the handoff
+            on_handoff=on_handoff,        # called right before the transfer happens
+            input_filter=None,            # see "Context filters" below
+        ),
+    ],
+)
+```
+
+- `input_type` (a Pydantic model) makes the LLM supply structured arguments when triggering
+  the handoff — validated the same way regular tool arguments are (via `Tool.parse_args()`).
+  If required fields are missing, the handoff does **not** happen; the model gets a
+  graceful "I need the following information..." message instead, same as any other tool
+  with bad arguments.
+- `on_handoff(ctx, data)` (or `on_handoff(ctx)` if no `input_type`) runs right before control
+  transfers, receiving a [`RunContextWrapper`](#runcontextwrapper) with `target_agent` set.
+- Without `input_type`, the model may optionally supply a free-form `message` argument,
+  which becomes the continuation prompt sent to the target agent.
+
+### Context filters
+
+By default, the target agent inherits the full prior conversation. Trim or transform it
+with `input_filter`:
+
+```python
+from abzagent import handoff
+from abzagent.extensions.handoffs_filter import remove_all_tools, keep_last_n_turns
+
+handoff(billing_agent, input_filter=remove_all_tools)   # drop prior tool messages
+handoff(billing_agent, input_filter=keep_last_n_turns(3))  # keep only the last 3 messages
+```
+
+An `input_filter` is any `HandoffInputData -> HandoffInputData` function
+(`abzagent.core.handoffs.HandoffInputData` wraps a `messages: list[Message]`).
+
+If the source and target agent already share the same `Memory` instance (`Agent(memory=shared)`
+on both), history is never replayed a second time — it's already there.
+
+One caveat worth knowing: the SDK never writes an agent's own final reply into `Memory`
+today (only `user` and `tool` roles are ever recorded) — this is a pre-existing behavior,
+unrelated to handoffs. A handed-off agent sees what the user said and what tools returned,
+not what a prior agent said back.
+
+### Errors
+
+```python
+from abzagent import CircularHandoffError, MaxHandoffDepthExceededError, InvalidHandoffTargetError
+```
+
+| Exception | When |
+|---|---|
+| `InvalidHandoffTargetError` | Raised immediately at `handoff(...)`/`Agent(handoffs=[...])` construction time if a target isn't an `Agent`. |
+| `CircularHandoffError` | An agent tried to hand off to an agent already in the current chain (including itself). |
+| `MaxHandoffDepthExceededError` | A handoff chain exceeded `abzagent.core.handoffs.MAX_HANDOFF_DEPTH` (default `5`). |
+
+All three subclass `RuntimeError` — the same category as guardrail tripwires (a structural
+safety trip that aborts the run), not `ModelBehaviorError`-style validation issues. Bad
+handoff *arguments* from the model degrade gracefully instead of raising (see `input_type`
+above), matching how a regular tool's bad arguments are already handled.
 
 ## Verbose mode
 
@@ -434,6 +566,7 @@ failure would raise. If you need uniform error handling across both providers, c
 |---|---|
 | `output_type` / `result.parsed` | **Implemented** — see [Structured output](#structured-output) |
 | `output_guardrails` | Accepted, stored, never invoked |
-| `handoffs=` / `handoff()` | Raises `RuntimeError` — missing internal module |
+| `handoffs=` / `handoff()` | **Implemented** — see [Handoffs](#handoffs) |
+| `agent.run(interactive=True)` | **Implemented** — see [Public methods](#public-methods) above |
 | `validate_model`, `include_experimental` | Accepted, currently no-ops |
 | Native provider function-calling | Not used — tool calls are parsed from prompt text via JSON convention |

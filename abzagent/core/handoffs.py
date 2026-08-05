@@ -1,85 +1,159 @@
+# abzagent/core/handoffs.py
 from __future__ import annotations
-import asyncio
-from typing import Any, Dict, Optional
-from dataclasses import asdict
 
-from .abz_handoff_core import (
-    SessionManager,
-    ContextBridge,
-    HandoffController as BaseHandoffController,
-    HandoffRequest,
-    SessionContext
-)
-from .tools import Tool, ToolCall
+import re
+from dataclasses import dataclass, field
+from typing import Any, Callable, List, Optional, Type, TYPE_CHECKING
 
-# ---------------- Handoff Wrapper ----------------
+from pydantic import BaseModel
+
+from .context import RunContextWrapper
+from .messages import Message
+from .tools import Tool
+
+# ⚠️ Do NOT import Agent at runtime — that creates a circular import with core.agent.
+if TYPE_CHECKING:
+    from .agent import Agent
+
+
+RECOMMENDED_PROMPT_PREFIX = """\
+You can DELEGATE tasks to other specialized agents using tools named like:
+- transfer_to_<agent_name_slug>
+
+When you decide another agent is better suited, call the correct transfer tool ONCE with any minimal context it needs.
+Return ONLY a JSON object for the tool call, e.g.:
+
+{"tool":"transfer_to_refund_agent","args":{"message":"Customer is asking for a refund for order #123."}}
+
+After delegating, do not repeat the answer yourself.
+"""
+
+MAX_HANDOFF_DEPTH = 5
+
+
+# ──────────────────────────────────────────────────────────────────────────────
+# Exceptions
+# ──────────────────────────────────────────────────────────────────────────────
+
+class HandoffError(RuntimeError):
+    """Base class for structural handoff failures (same category as guardrail
+    tripwires — an aborted run, not a garden-variety model/tool-arg mistake)."""
+
+
+class InvalidHandoffTargetError(HandoffError):
+    """Raised eagerly when a handoff target doesn't look like an Agent."""
+
+
+class CircularHandoffError(HandoffError):
+    """Raised when a handoff chain would revisit an agent already in it."""
+
+
+class MaxHandoffDepthExceededError(HandoffError):
+    """Raised when a handoff chain exceeds MAX_HANDOFF_DEPTH."""
+
+
+# ──────────────────────────────────────────────────────────────────────────────
+# Input data / filters
+# ──────────────────────────────────────────────────────────────────────────────
+
+@dataclass
+class HandoffInputData:
+    """The conversation history about to be handed to the next agent."""
+    messages: List[Message] = field(default_factory=list)
+
+
+InputFilter = Callable[[HandoffInputData], HandoffInputData]
+
+
+class _DefaultHandoffArgs(BaseModel):
+    message: Optional[str] = None
+
+
+# ──────────────────────────────────────────────────────────────────────────────
+# Handoff
+# ──────────────────────────────────────────────────────────────────────────────
+
 class Handoff:
-    """Wraps an agent or agent name to be used as a handoff tool."""
+    """Wraps a target Agent so it can be offered to another Agent as a
+    transfer_to_<name> tool. Construct via the handoff() factory below."""
 
-    def __init__(self, target_agent: Any, session_manager: Optional[SessionManager] = None):
-        """
-        target_agent: can be an Agent instance, agent name string, or any identifier
-        session_manager: optional custom session manager
-        """
+    def __init__(
+        self,
+        target_agent: "Agent",
+        *,
+        tool_name_override: Optional[str] = None,
+        tool_description_override: Optional[str] = None,
+        input_filter: Optional[InputFilter] = None,
+        on_handoff: Optional[Callable[..., Any]] = None,
+        input_type: Optional[Type[BaseModel]] = None,
+    ) -> None:
+        if not hasattr(target_agent, "run") or not hasattr(target_agent, "name"):
+            raise InvalidHandoffTargetError(
+                f"Handoff target must be an Agent (needs .name and .run()), got {target_agent!r}."
+            )
+
         self.target_agent = target_agent
-        self.session_manager = session_manager or SessionManager()
-        self.controller = BaseHandoffController(self.session_manager)
+        self.input_filter = input_filter
+        self.on_handoff = on_handoff
+        self.input_type = input_type
 
-    def to_tool(self, current_agent: Any) -> Tool:
-        """Return a Tool object that calls this handoff."""
-        target_name = getattr(self.target_agent, "name", str(self.target_agent))
+        slug = _slugify(target_agent.name)
+        self.tool_name = tool_name_override or f"transfer_to_{slug}"
+        self.tool_description = (
+            tool_description_override
+            or f"Transfer the conversation to the '{target_agent.name}' agent."
+        )
+
+    def to_tool(self, source_agent: "Agent") -> Tool:
+        handoff_obj = self
 
         class _HandoffTool(Tool):
-            name = f"handoff_to_{target_name}"
-            description = f"Handoff tool from {getattr(current_agent, 'name', 'Agent')} to {target_name}"
+            name = handoff_obj.tool_name
+            description = handoff_obj.tool_description
+            schema = handoff_obj.input_type or _DefaultHandoffArgs
 
-            schema = None  # free-form message
+            # Detection markers — Agent._run() checks these to intercept the
+            # call before normal tool execution.
+            is_handoff = True
+            handoff = handoff_obj
 
-            def run(self, **kwargs) -> str:
-                user_message = kwargs.get("message", "")
-                # Build handoff request
-                # session_payload must be provided; we simulate by serializing current memory
-                session_ctx: SessionContext = getattr(current_agent, "memory", None)
-                if not session_ctx:
-                    # fallback: create a dummy session
-                    session_ctx = self._create_dummy_session(user_message)
-
-                payload = ContextBridge.serialize(session_ctx)
-
-                req = HandoffRequest(
-                    from_agent=getattr(current_agent, "name", None),
-                    to_agent=target_name,
-                    session_payload=payload,
-                    reason="handoff triggered by agent",
-                )
-
-                # Run async controller in sync context
-                try:
-                    loop = asyncio.get_event_loop()
-                except RuntimeError:
-                    import nest_asyncio
-                    nest_asyncio.apply()
-                    loop = asyncio.get_event_loop()
-
-                return loop.run_until_complete(self.controller.start_handoff(req))["message"]
-
-            def _create_dummy_session(self, user_message: str) -> SessionContext:
-                # fallback dummy session for memory-less agent
-                from .memory import Memory  # optional; if needed
-                s = SessionContext(session_id="dummy")
-                s.append_message("user", user_message)
-                return s
+            def run(self, **kwargs) -> str:  # pragma: no cover - never actually invoked
+                # Agent._run() intercepts handoff tool calls before this would
+                # be reached; kept only so direct/introspective calls fail safely.
+                return f"[Handoff] This call should have been intercepted by Agent._run() for a transfer to '{handoff_obj.target_agent.name}'."
 
         return _HandoffTool()
 
 
-# ---------------- Public handoff() factory ----------------
-def handoff(agent: Any) -> Handoff:
+def handoff(
+    agent: "Agent",
+    *,
+    tool_name_override: Optional[str] = None,
+    tool_description_override: Optional[str] = None,
+    input_filter: Optional[InputFilter] = None,
+    on_handoff: Optional[Callable[..., Any]] = None,
+    input_type: Optional[Type[BaseModel]] = None,
+) -> Handoff:
     """
-    Wraps a target agent (or agent name) as a Handoff object for ABZ Agent SDK.
-    Use in Agent definition:
+    Wrap a target agent as a Handoff, for customization beyond the bare-Agent
+    default (tool name/description overrides, input_filter, on_handoff, input_type):
 
         sales_agent = Agent(...)
-        support_agent = Agent(..., handoffs=[handoff(sales_agent)])
+        support_agent = Agent(..., handoffs=[handoff(sales_agent, input_filter=remove_all_tools)])
+
+    For the common case, a bare Agent in `handoffs=[...]` is wrapped in a
+    Handoff automatically — you don't need to call this yourself.
     """
-    return Handoff(agent)
+    return Handoff(
+        agent,
+        tool_name_override=tool_name_override,
+        tool_description_override=tool_description_override,
+        input_filter=input_filter,
+        on_handoff=on_handoff,
+        input_type=input_type,
+    )
+
+
+def _slugify(name: str) -> str:
+    slug = re.sub(r"[^a-zA-Z0-9]+", "_", name.strip()).strip("_").lower()
+    return slug or "agent"
