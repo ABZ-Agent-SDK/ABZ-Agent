@@ -5,6 +5,18 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [0.5.1] - 2026-08-06
+
+### Fixed
+
+- Guardrail symbols (`input_guardrail`, `output_guardrail`, `tool_input_guardrail`,
+  `tool_output_guardrail`, `GuardrailFunctionOutput`, and the three
+  `*TripwireTriggered` exceptions) are now importable directly from the top-level
+  `abzagent` package (`from abzagent import input_guardrail`), matching how
+  Handoffs are already exported. They shipped in 0.5.0 working correctly via
+  `abzagent.core.guardrails` / `abzagent.core`, but were missing from
+  `abzagent/__init__.py`, so the top-level import raised `ImportError`.
+
 ## [0.5.0] - 2026-08-06
 
 ### Added

@@ -68,6 +68,31 @@ def make_agent(name, **kwargs):
     return Agent(name=name, instructions=f"You are {name}.", model="gemini-2.0-flash", **kwargs)
 
 
+class TestTopLevelPackageExports:
+    """Regression guard: guardrail symbols must be importable from the top-level
+    `abzagent` package, not just `abzagent.core.guardrails` — this exact gap
+    (working core export, missing top-level export) shipped once already."""
+
+    def test_all_guardrail_symbols_importable_from_top_level(self):
+        import abzagent
+
+        for name in [
+            "input_guardrail", "output_guardrail",
+            "tool_input_guardrail", "tool_output_guardrail",
+            "GuardrailFunctionOutput",
+            "InputGuardrailTripwireTriggered",
+            "OutputGuardrailTripwireTriggered",
+            "ToolGuardrailTripwireTriggered",
+        ]:
+            assert hasattr(abzagent, name), f"abzagent.{name} is not exported"
+            assert name in abzagent.__all__, f"{name} missing from abzagent.__all__"
+
+    def test_from_abzagent_import_input_guardrail(self):
+        from abzagent import input_guardrail as top_level_input_guardrail
+
+        assert top_level_input_guardrail is input_guardrail
+
+
 # ─────────────────────────────────────────────
 # Input guardrails (regression — pre-existing, working)
 # ─────────────────────────────────────────────

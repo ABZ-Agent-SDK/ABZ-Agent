@@ -46,6 +46,16 @@ from .core.handoffs import (
     InvalidHandoffTargetError,
     HandoffInputData,
 )
+from .core.guardrails import (
+    GuardrailFunctionOutput,
+    input_guardrail,
+    output_guardrail,
+    tool_input_guardrail,
+    tool_output_guardrail,
+    InputGuardrailTripwireTriggered,
+    OutputGuardrailTripwireTriggered,
+    ToolGuardrailTripwireTriggered,
+)
 
 # Optional: expose SDK config and providers
 from .config import SDKConfig
@@ -77,12 +87,20 @@ __all__ = [
     "MaxHandoffDepthExceededError",
     "InvalidHandoffTargetError",
     "HandoffInputData",
+    "GuardrailFunctionOutput",
+    "input_guardrail",
+    "output_guardrail",
+    "tool_input_guardrail",
+    "tool_output_guardrail",
+    "InputGuardrailTripwireTriggered",
+    "OutputGuardrailTripwireTriggered",
+    "ToolGuardrailTripwireTriggered",
     "SDKConfig",
     "GeminiProvider",
     "GroqProvider",
 ]
 
-__version__ = "0.5.0"
+__version__ = "0.5.1"
 __author__ = "Abu Bakar"
 __license__ = "MIT"
 
