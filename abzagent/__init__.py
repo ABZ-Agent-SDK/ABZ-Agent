@@ -48,6 +48,8 @@ from .core.handoffs import (
 )
 from .core.guardrails import (
     GuardrailFunctionOutput,
+    GuardrailResult,
+    Guardrail,
     input_guardrail,
     output_guardrail,
     tool_input_guardrail,
@@ -88,6 +90,8 @@ __all__ = [
     "InvalidHandoffTargetError",
     "HandoffInputData",
     "GuardrailFunctionOutput",
+    "GuardrailResult",
+    "Guardrail",
     "input_guardrail",
     "output_guardrail",
     "tool_input_guardrail",
@@ -100,7 +104,7 @@ __all__ = [
     "GroqProvider",
 ]
 
-__version__ = "0.5.1"
+__version__ = "0.5.2"
 __author__ = "Abu Bakar"
 __license__ = "MIT"
 

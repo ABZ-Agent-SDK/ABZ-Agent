@@ -1,6 +1,6 @@
 [project]
 name = "abz-agents"
-version = "0.5.1"
+version = "0.5.2"
 description = "The fastest way to build AI agents using Google Gemini & Groq"
 readme = "README.md"
 authors = [

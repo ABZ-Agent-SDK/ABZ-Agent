@@ -5,6 +5,19 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [0.5.2] - 2026-08-06
+
+### Added
+
+- `GuardrailResult` and `Guardrail` are now importable from `abzagent` (and
+  `abzagent.core`) as aliases: `GuardrailResult` is the same class as
+  `GuardrailFunctionOutput` (the canonical name used throughout the docs and
+  tests), and `Guardrail` is the same class as the guardrail-wrapper type
+  produced by `@input_guardrail`/`@output_guardrail`/etc. Neither name
+  existed anywhere in the codebase before this release — this adds them as
+  aliases rather than renaming the originals, so nothing already using
+  `GuardrailFunctionOutput` needs to change.
+
 ## [0.5.1] - 2026-08-06
 
 ### Fixed

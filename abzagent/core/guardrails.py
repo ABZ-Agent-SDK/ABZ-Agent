@@ -20,6 +20,12 @@ class GuardrailFunctionOutput(BaseModel):
     reason: Optional[str] = None
 
 
+# Alias: GuardrailFunctionOutput is the canonical name used throughout this
+# SDK's docs, tests, and examples. GuardrailResult is exposed as a plain
+# alias for callers who expect that name — both refer to the same class.
+GuardrailResult = GuardrailFunctionOutput
+
+
 class InputGuardrailTripwireTriggered(RuntimeError):
     def __init__(self, message: str, output: GuardrailFunctionOutput):
         super().__init__(message)
@@ -83,6 +89,13 @@ class _Guardrail(Generic[TInput]):
             raise
         except Exception as e:
             raise RuntimeError(f"Guardrail '{self.name}' raised an exception: {e}") from e
+
+
+# Public alias for _Guardrail. The decorators below (@input_guardrail, etc.)
+# are the intended way to build one; this alias exists for type hints or
+# isinstance checks against the wrapper type without reaching for the
+# underscore-prefixed internal name.
+Guardrail = _Guardrail
 
 
 def input_guardrail(fn: Callable[..., Any]) -> _Guardrail[str]:

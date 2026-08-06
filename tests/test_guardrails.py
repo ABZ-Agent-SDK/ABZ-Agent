@@ -87,6 +87,34 @@ class TestTopLevelPackageExports:
             assert hasattr(abzagent, name), f"abzagent.{name} is not exported"
             assert name in abzagent.__all__, f"{name} missing from abzagent.__all__"
 
+    def test_guardrail_result_alias_importable_and_identical(self):
+        """GuardrailResult never existed as a separate class — it's an alias
+        of GuardrailFunctionOutput, the name actually used by every guardrail
+        function's return type."""
+        from abzagent import GuardrailResult, GuardrailFunctionOutput
+
+        assert GuardrailResult is GuardrailFunctionOutput
+        assert "GuardrailResult" in __import__("abzagent").__all__
+
+    def test_guardrail_alias_importable_and_identical(self):
+        """Guardrail (public) never existed either — it's an alias of the
+        wrapper type the decorators (@input_guardrail, etc.) produce."""
+        from abzagent import Guardrail, input_guardrail
+
+        wrapped = input_guardrail(lambda ctx, agent, user_input: None)
+        assert isinstance(wrapped, Guardrail)
+        assert "Guardrail" in __import__("abzagent").__all__
+
+    def test_all_names_declared_in_all_actually_resolve(self):
+        """No dangling __all__ entries anywhere in the public API."""
+        import abzagent
+        import abzagent.core as core
+
+        missing_top = [n for n in abzagent.__all__ if not hasattr(abzagent, n)]
+        missing_core = [n for n in core.__all__ if not hasattr(core, n)]
+        assert missing_top == []
+        assert missing_core == []
+
     def test_from_abzagent_import_input_guardrail(self):
         from abzagent import input_guardrail as top_level_input_guardrail
 
