@@ -467,3 +467,102 @@ class TestInputFilter:
 
         prompt_text = billing.memory.to_prompt()
         assert "old message 1" not in prompt_text
+
+
+class TestToolDescriptionAutoDerivation:
+    def test_bare_agent_gets_rich_description_from_instructions(self):
+        """Exact example from the request: zero extra config, still rich."""
+        writer = Agent(name="Writer", instructions="Write blogs and articles.", model="gemini-2.0-flash")
+        planner = Agent(name="Planner", instructions="Route tasks.", model="gemini-2.0-flash", handoffs=[writer])
+
+        tool = planner.tools["transfer_to_writer"]
+        assert "Write blogs and articles." in tool.description
+        assert tool.description != "Transfer the conversation to the 'Writer' agent."
+
+    def test_tool_description_override_still_wins(self):
+        writer = make_agent("Writer")
+        planner = make_agent(
+            "Planner", handoffs=[handoff(writer, tool_description_override="Custom routing text.")]
+        )
+        tool = planner.tools["transfer_to_writer"]
+        assert tool.description == "Custom routing text."
+
+    def test_dynamic_instructions_fall_back_to_generic_description(self):
+        def dynamic_instructions(ctx, agent):
+            return "dynamic!"
+
+        dyn_target = Agent(name="Dyn", instructions=dynamic_instructions, model="gemini-2.0-flash")
+        host = make_agent("Host", handoffs=[dyn_target])
+        tool = host.tools["transfer_to_dyn"]
+        assert tool.description == "Transfer the conversation to the 'Dyn' agent."
+
+    def test_long_instructions_are_truncated_not_verbatim(self):
+        long_target = Agent(name="Long", instructions="x" * 500, model="gemini-2.0-flash")
+        host = make_agent("Host", handoffs=[long_target])
+        tool = host.tools["transfer_to_long"]
+        assert "x" * 500 not in tool.description
+        assert "..." in tool.description
+        assert len(tool.description) < 400
+
+
+class TestInteractiveHandoffVisualization:
+    def test_no_output_during_plain_non_interactive_run(self, monkeypatch, capsys):
+        """Core regression guard: the library must never print unsolicited
+        output during a plain programmatic .run() call, even when a handoff
+        actually occurs."""
+        billing = make_agent("Billing")
+        support = make_agent("Support", handoffs=[billing])
+        fake, _ = _scripted_provider({
+            "Support": ToolCall(tool="transfer_to_billing", args={}),
+            "Billing": "ok",
+        })
+        monkeypatch.setattr(GeminiProvider, "generate", fake)
+
+        result = support.run("hi")
+        assert result.last_agent is billing
+        assert capsys.readouterr().out == ""
+
+    def test_diagram_shown_during_interactive_handoff(self, monkeypatch, capsys):
+        billing = make_agent("Billing")
+        support = make_agent("Support", handoffs=[billing])
+        fake, _ = _scripted_provider({
+            "Support": ToolCall(tool="transfer_to_billing", args={}),
+            "Billing": "ok",
+        })
+        monkeypatch.setattr(GeminiProvider, "generate", fake)
+
+        it = iter(["hi", "exit"])
+        monkeypatch.setattr("builtins.input", lambda prompt="": next(it))
+
+        support.run(interactive=True)
+        out = capsys.readouterr().out
+        assert "🔄 Handoff" in out
+        assert "Support" in out
+        assert "Billing" in out
+        assert "│" in out
+        assert "▼" in out
+
+    def test_multi_hop_chain_prints_sequential_diagrams_not_one_cumulative(self, monkeypatch, capsys):
+        c = make_agent("C")
+        b = make_agent("B", handoffs=[c])
+        a = make_agent("A", handoffs=[b])
+
+        fake, _ = _scripted_provider({
+            "A": ToolCall(tool="transfer_to_b", args={}),
+            "B": ToolCall(tool="transfer_to_c", args={}),
+            "C": "final answer",
+        })
+        monkeypatch.setattr(GeminiProvider, "generate", fake)
+
+        it = iter(["start", "exit"])
+        monkeypatch.setattr("builtins.input", lambda prompt="": next(it))
+
+        a.run(interactive=True)
+        out = capsys.readouterr().out
+
+        assert out.count("🔄 Handoff") == 2
+        second_block_start = out.index("🔄 Handoff", out.index("🔄 Handoff") + 1)
+        first_block, second_block = out[:second_block_start], out[second_block_start:]
+
+        assert "A\n" in first_block and "B\n" in first_block
+        assert "B\n" in second_block and "C\n" in second_block

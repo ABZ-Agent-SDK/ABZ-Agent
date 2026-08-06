@@ -214,6 +214,7 @@ class Agent:
         *,
         context: Any = None,
         interactive: bool = False,
+        _interactive: bool = False,
     ) -> Optional[AgentResult]:
         """
         The SDK's single execution entrypoint.
@@ -233,7 +234,7 @@ class Agent:
         if user_message is None:
             raise ValueError("Agent.run() requires a user_message when interactive=False.")
 
-        return self._run(user_message, context=context, _handoff_path=[])
+        return self._run(user_message, context=context, _handoff_path=[], _interactive=_interactive)
 
     def _run_interactive(self, *, context: Any = None) -> None:
         """
@@ -257,7 +258,7 @@ class Agent:
                 return
 
             try:
-                result = self.run(user_input, context=context)
+                result = self.run(user_input, context=context, _interactive=True)
             except KeyboardInterrupt:
                 print("\n👋 Goodbye!")
                 return
@@ -273,6 +274,7 @@ class Agent:
         *,
         context: Any = None,
         _handoff_path: Optional[List["Agent"]] = None,
+        _interactive: bool = False,
     ) -> AgentResult:
         steps: List[str] = []
         ctx_for_run = RunContextWrapper(
@@ -306,7 +308,8 @@ class Agent:
                 tool = self.tools.get(tool_call.tool)
                 if tool is not None and getattr(tool, "is_handoff", False):
                     return self._perform_handoff(
-                        tool, tool_call, steps=steps, context=context, _handoff_path=_handoff_path
+                        tool, tool_call, steps=steps, context=context,
+                        _handoff_path=_handoff_path, _interactive=_interactive,
                     )
                 obs = self._execute_tool(tool_call)
                 self.memory.remember("tool", obs)
@@ -334,7 +337,8 @@ class Agent:
                 tool = self.tools.get(tool_call.tool)
                 if tool is not None and getattr(tool, "is_handoff", False):
                     return self._perform_handoff(
-                        tool, tool_call, steps=steps, context=context, _handoff_path=_handoff_path
+                        tool, tool_call, steps=steps, context=context,
+                        _handoff_path=_handoff_path, _interactive=_interactive,
                     )
                 obs = self._execute_tool(tool_call)
                 self.memory.remember("tool", obs)
@@ -357,6 +361,7 @@ class Agent:
         steps: List[str],
         context: Any,
         _handoff_path: Optional[List["Agent"]],
+        _interactive: bool = False,
     ) -> AgentResult:
         handoff_obj: Handoff = tool.handoff
         target: "Agent" = handoff_obj.target_agent
@@ -415,7 +420,12 @@ class Agent:
             "Review the conversation above and continue helping the user."
         )
 
-        nested = target._run(continuation, context=context, _handoff_path=path)
+        if _interactive:
+            print(f"\n🔄 Handoff\n\n{self.name}\n   │\n   ▼\n{target.name}\n")
+
+        nested = target._run(
+            continuation, context=context, _handoff_path=path, _interactive=_interactive
+        )
         nested.steps = [*steps, f"[HANDOFF] {self.name} -> {target.name}", *nested.steps]
         return nested
 
@@ -566,14 +576,21 @@ class Agent:
                 manifest.append(f"- {n}: {desc}")
             system += "\n" + "\n".join(manifest)
 
-        if self._handoffs:
-            system += "\n\n" + (RECOMMENDED_PROMPT_PREFIX_NATIVE if native else RECOMMENDED_PROMPT_PREFIX)
-
         if self._output_schema is not None and not self._output_schema.is_plain_text:
             system += "\n\n" + self._output_schema.prompt_instructions()
 
         history = self.memory.to_prompt()
-        return f"[SYSTEM]: {system}\n\n{history}\n\n[USER]: {user_message}"
+
+        # The handoff hint is deliberately the LAST thing before the user's
+        # message, not folded into `system` above — models weight the end of
+        # the prompt more heavily, and this is the single highest-leverage
+        # reminder for getting weaker models to actually transfer instead of
+        # answering directly.
+        tail = ""
+        if self._handoffs:
+            tail = "\n\n" + (RECOMMENDED_PROMPT_PREFIX_NATIVE if native else RECOMMENDED_PROMPT_PREFIX)
+
+        return f"[SYSTEM]: {system}\n\n{history}{tail}\n\n[USER]: {user_message}"
 
     def _generate_and_dispatch(self, prompt: str) -> GenerationResult:
         """

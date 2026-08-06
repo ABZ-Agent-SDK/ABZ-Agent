@@ -5,6 +5,43 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [0.4.0] - 2026-08-05
+
+### Changed
+
+- Handoff prompting redesigned to significantly improve reliability, especially
+  on smaller/free models that previously answered directly instead of
+  transferring. The injected prompt now frames the agent explicitly as a
+  router ("if a specialist tool clearly matches, call it — do not answer
+  yourself") instead of permissive "you can delegate..." language, and is
+  positioned as the last thing before the user's message rather than buried
+  mid-prompt.
+- Handoff tool descriptions are now generated automatically from each target
+  agent's own `instructions` (no new config — `Agent(name=..., instructions=...)`
+  used bare in `handoffs=[...]` now produces a real "use this agent when..."
+  hint instead of a generic one-liner). `handoff(target,
+  tool_description_override=...)` still overrides it when set.
+
+### Added
+
+- `agent.run(interactive=True)` now prints a small diagram (`🔄 Handoff`) for
+  each transfer as it happens, including multi-hop chains — handled entirely
+  by the SDK, nothing to print yourself. This never happens during a plain
+  `agent.run("...")` call.
+
+## [0.3.0] - 2026-08-05
+
+### Changed
+
+- Tool calls (including Handoffs) are now detected via each provider's native
+  function/tool-calling API instead of asking the model to emit a JSON blob in
+  plain text and regex-parsing it out. Both Gemini and Groq support this
+  natively and use it by default — this is significantly more reliable than
+  the old text convention. The old prompt+regex approach is kept as a working
+  fallback for a hypothetical future provider without native tool-calling
+  support, not removed; no application code changes are required to benefit
+  from this.
+
 ## [0.2.0] - 2026-08-05
 
 ### Added

@@ -17,28 +17,39 @@ if TYPE_CHECKING:
 
 
 RECOMMENDED_PROMPT_PREFIX = """\
-You can DELEGATE tasks to other specialized agents using tools named like:
-- transfer_to_<agent_name_slug>
+You are a ROUTER first. Before answering anything, check whether one of your \
+transfer_to_<agent_name_slug> tools is a clear match for what the user is asking.
 
-When you decide another agent is better suited, call the correct transfer tool ONCE with any minimal context it needs.
+- If a specialist tool clearly matches this specific request: call it immediately. \
+Do not draft an answer first, do not partially answer, do not explain that you're \
+transferring — just call the tool.
+- If no specialist tool matches this specific request (e.g. small talk, or a question \
+none of your specialists cover): answer normally yourself.
+- A transfer is a complete, final action. Never call a transfer tool and then also \
+answer the question yourself in the same turn.
+
 Return ONLY a JSON object for the tool call, e.g.:
 
 {"tool":"transfer_to_refund_agent","args":{"message":"Customer is asking for a refund for order #123."}}
-
-After delegating, do not repeat the answer yourself.
 """
 
 # Used only in native-tool-calling mode (Agent._build_prompt(), gated on
 # provider.supports_native_tools). The provider's own tool-calling mechanism
 # already handles HOW to invoke a transfer; this only needs to teach the
 # model WHEN to — no JSON-formatting instructions, unlike
-# RECOMMENDED_PROMPT_PREFIX above, which stays exactly as-is since it's
-# publicly re-exported via extensions/handoff_prompt.py.
+# RECOMMENDED_PROMPT_PREFIX above, which stays exactly as-is (content aside)
+# since it's publicly re-exported via extensions/handoff_prompt.py.
 RECOMMENDED_PROMPT_PREFIX_NATIVE = """\
-You can delegate this conversation to another, more specialized agent by \
-calling the appropriate transfer tool. Do this when a specialized agent is \
-clearly better suited to handle the request than you are. After delegating, \
-do not also answer yourself — the transfer is the complete action.
+You are a ROUTER first. Before answering anything, check whether one of your \
+transfer tools is a clear match for what the user is asking.
+
+- If a specialist tool clearly matches this specific request: call it immediately. \
+Do not draft an answer first, do not partially answer, do not explain that you're \
+transferring — just call the tool.
+- If no specialist tool matches this specific request (e.g. small talk, or a question \
+none of your specialists cover): answer normally yourself.
+- A transfer is a complete, final action. Never call a transfer tool and then also \
+answer the question yourself in the same turn.
 """
 
 MAX_HANDOFF_DEPTH = 5
@@ -112,10 +123,7 @@ class Handoff:
 
         slug = _slugify(target_agent.name)
         self.tool_name = tool_name_override or f"transfer_to_{slug}"
-        self.tool_description = (
-            tool_description_override
-            or f"Transfer the conversation to the '{target_agent.name}' agent."
-        )
+        self.tool_description = tool_description_override or _auto_description(target_agent)
 
     def to_tool(self, source_agent: "Agent") -> Tool:
         handoff_obj = self
@@ -170,3 +178,31 @@ def handoff(
 def _slugify(name: str) -> str:
     slug = re.sub(r"[^a-zA-Z0-9]+", "_", name.strip()).strip("_").lower()
     return slug or "agent"
+
+
+# Caps the auto-derived description's length — native-mode tool calling sends
+# every tool's full description as part of its JSON schema on every turn, so an
+# unbounded copy of a target agent's (possibly long) instructions would bloat
+# every request, not just the one where the handoff is relevant.
+_MAX_AUTO_DESCRIPTION_INSTRUCTIONS_CHARS = 300
+
+
+def _auto_description(target_agent: "Agent") -> str:
+    """
+    Default tool description for a handoff, with no override given. Auto-derives
+    a "when to use this" hint from the target agent's own instructions — the
+    same text the developer already had to write, no extra config — so a bare
+    Agent(name=..., instructions=...) in handoffs=[...] gets a genuinely useful
+    routing description automatically. Falls back to a generic description when
+    instructions are dynamic (a callable) and can't be safely introspected
+    without actually calling it.
+    """
+    instructions_src = getattr(target_agent, "_instructions_src", None)
+    if isinstance(instructions_src, str):
+        text = instructions_src.strip()
+        if text:
+            if len(text) > _MAX_AUTO_DESCRIPTION_INSTRUCTIONS_CHARS:
+                text = text[:_MAX_AUTO_DESCRIPTION_INSTRUCTIONS_CHARS].rstrip() + "..."
+            return f"Transfer to the '{target_agent.name}' agent. Use this when the request matches: {text}"
+
+    return f"Transfer the conversation to the '{target_agent.name}' agent."

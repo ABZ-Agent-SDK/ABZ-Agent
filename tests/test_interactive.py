@@ -59,9 +59,11 @@ class TestNormalModeUnchanged:
         received = []
         original_run = agent._run
 
-        def spy_run(user_message, *, context=None, _handoff_path=None):
+        def spy_run(user_message, *, context=None, _handoff_path=None, _interactive=False):
             received.append((user_message, context))
-            return original_run(user_message, context=context, _handoff_path=_handoff_path)
+            return original_run(
+                user_message, context=context, _handoff_path=_handoff_path, _interactive=_interactive
+            )
 
         agent._run = spy_run
         result = agent.run("Hello", context={"a": 1})

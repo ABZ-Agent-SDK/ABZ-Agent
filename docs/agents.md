@@ -461,9 +461,22 @@ result.last_agent    # whichever agent actually produced it (e.g. the Writer age
 4. `result.last_agent` always reflects whichever agent actually produced `result.content`,
    even through a multi-hop chain.
 
-A handoff-aware prompt hint is automatically added to the system prompt whenever an agent
-has `handoffs=[...]` configured — you don't need to write "you can transfer this
-conversation" into `instructions` yourself.
+A router-focused prompt hint is automatically added to the system prompt whenever an agent
+has `handoffs=[...]` configured — framed as "you are a router first," with an explicit rule
+for when to transfer vs. answer directly, positioned as the last thing before the user's
+message (models weight the end of the prompt more heavily). You don't need to write any of
+this into `instructions` yourself.
+
+Each transfer tool's description is also generated automatically from the *target* agent's
+own `instructions` (truncated if long) — so `handoffs=[writer_agent]` where `writer_agent`
+was constructed with `instructions="Write blogs and articles."` gives the routing model a
+real "use this agent when..." hint with zero extra code. Use `handoff(target,
+tool_description_override=...)` if you want a different, hand-written description instead.
+
+When `agent.run(interactive=True)` is used, each handoff prints a small arrow diagram
+(`🔄 Handoff\n\n{from}\n   │\n   ▼\n{to}`) as it happens — automatically, nothing to print
+yourself. This never happens during a plain `agent.run("...")` call; the SDK never writes to
+stdout outside an interactive session.
 
 ### The `handoff()` factory (customization)
 

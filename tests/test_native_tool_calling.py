@@ -47,7 +47,7 @@ class TestNativeModePromptOmitsManifest:
             handoffs=[specialist],
         )
         prompt = agent._build_prompt("hi", effective_instructions=agent.instructions or "Route work.")
-        assert "calling the appropriate transfer tool" in prompt  # native hint
+        assert "You are a ROUTER first" in prompt  # native hint
         assert 'Return ONLY a JSON object for the tool call' not in prompt  # fallback hint's JSON instructions
 
 
@@ -75,6 +75,34 @@ class TestFallbackModePromptIncludesManifest:
         prompt = agent._build_prompt("hi", effective_instructions=agent.instructions or "Route work.")
         assert "transfer_to_<agent_name_slug>" in prompt
         assert 'Return ONLY a JSON object for the tool call' in prompt
+
+
+class TestHandoffHintPosition:
+    def test_handoff_hint_comes_after_history_and_before_user_message(self):
+        """The handoff hint is deliberately the last thing before [USER]: —
+        models weight the end of the prompt more heavily, so this positioning
+        matters for getting weaker models to actually transfer."""
+        specialist = Agent(name="Specialist", instructions="Handle specialist work.", model="gemini-2.0-flash")
+        agent = Agent(
+            name="Router",
+            instructions="Route work.",
+            model="gemini-2.0-flash",
+            handoffs=[specialist],
+        )
+        agent.memory.remember("user", "MARKER_HISTORY_LINE")
+
+        prompt = agent._build_prompt("hi", effective_instructions="Route work.")
+        history_pos = prompt.index("MARKER_HISTORY_LINE")
+        hint_pos = prompt.index("You are a ROUTER first")
+        final_user_message_pos = prompt.rindex("[USER]: hi")  # the actual trailing user message,
+        # not the "[USER]: MARKER_HISTORY_LINE" line rendered as part of history
+
+        assert history_pos < hint_pos < final_user_message_pos
+
+    def test_no_handoffs_no_hint_at_all(self):
+        agent = Agent(name="Solo", instructions="Be helpful.", model="gemini-2.0-flash")
+        prompt = agent._build_prompt("hi", effective_instructions="Be helpful.")
+        assert "ROUTER first" not in prompt
 
 
 class TestGenerateAndDispatchToolsWiring:
