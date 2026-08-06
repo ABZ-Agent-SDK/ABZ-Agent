@@ -5,6 +5,19 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [0.5.3] - 2026-08-06
+
+### Fixed
+
+- `GuardrailFunctionOutput.output_info` now defaults to `None` instead of
+  being a required field — `GuardrailFunctionOutput(tripwire_triggered=False)`
+  no longer raises a `pydantic.ValidationError` when there's nothing to report.
+- Guardrail functions may now omit the `agent` parameter from their signature
+  across all four guardrail kinds — `def my_guardrail(ctx, user_input): ...`
+  works the same as the full `def my_guardrail(ctx, agent, user_input): ...`.
+  Previously, a guardrail written without `agent` failed with a confusing
+  "takes N positional arguments but N+1 were given" error.
+
 ## [0.5.2] - 2026-08-06
 
 ### Added

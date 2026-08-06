@@ -551,6 +551,108 @@ class TestWrongReturnTypeRaisesTypeError:
 
 
 # ─────────────────────────────────────────────
+# output_info default + abbreviated (agent-omitted) signatures
+# ─────────────────────────────────────────────
+
+class TestOutputInfoHasDefault:
+    def test_construct_without_output_info_does_not_raise(self):
+        out = GuardrailFunctionOutput(tripwire_triggered=False)
+        assert out.output_info is None
+
+    def test_construct_with_output_info_still_works(self):
+        out = GuardrailFunctionOutput(tripwire_triggered=True, output_info={"x": 1})
+        assert out.output_info == {"x": 1}
+
+
+class TestAbbreviatedSignatureOmittingAgent:
+    """The exact reported usability bug: a guardrail that omits the rarely-used
+    `agent` parameter reads as perfectly valid Python and should work, not fail
+    with a confusing arity TypeError."""
+
+    def test_input_guardrail_two_arg_signature(self, monkeypatch):
+        @input_guardrail
+        def block_math(ctx, message):
+            if "+" in message:
+                return GuardrailFunctionOutput(tripwire_triggered=True, output_info="Math is not allowed.")
+            return GuardrailFunctionOutput(tripwire_triggered=False)
+
+        agent = make_agent("Bot", input_guardrails=[block_math])
+        fake, _ = _scripted_provider({"Bot": "hi there"})
+        monkeypatch.setattr(GeminiProvider, "generate", fake)
+
+        result = agent.run("hello")
+        assert result.content == "hi there"
+
+        with pytest.raises(InputGuardrailTripwireTriggered):
+            agent.run("2 + 2")
+
+    def test_output_guardrail_two_arg_signature(self, monkeypatch):
+        @output_guardrail
+        def too_long(ctx, output):
+            return GuardrailFunctionOutput(tripwire_triggered=len(output) > 5)
+
+        agent = make_agent("Bot", output_guardrails=[too_long])
+        fake, _ = _scripted_provider({"Bot": "this is way too long"})
+        monkeypatch.setattr(GeminiProvider, "generate", fake)
+
+        with pytest.raises(OutputGuardrailTripwireTriggered):
+            agent.run("hi")
+
+    def test_tool_input_guardrail_three_arg_signature(self, monkeypatch):
+        @tool_input_guardrail
+        def block_forbidden(ctx, call, kwargs):
+            return GuardrailFunctionOutput(
+                tripwire_triggered=kwargs.get("item") == "forbidden", reason="blocked"
+            )
+
+        agent = make_agent("Shop", tools=[_lookup_price], tool_input_guardrails=[block_forbidden])
+        fake, _ = _scripted_provider({"Shop": ToolCall(tool="_lookup_price", args={"item": "forbidden"})})
+        monkeypatch.setattr(GeminiProvider, "generate", fake)
+
+        result = agent.run("price of forbidden item")
+        assert result.content.startswith("[Tool Guardrail Blocked]")
+
+    def test_tool_output_guardrail_four_arg_signature(self, monkeypatch):
+        @tool_output_guardrail
+        def redact(ctx, call, kwargs, output):
+            return GuardrailFunctionOutput(tripwire_triggered="10" in output, reason="redacted")
+
+        agent = make_agent("Shop", tools=[_lookup_price], tool_output_guardrails=[redact])
+        fake, _ = _scripted_provider({"Shop": ToolCall(tool="_lookup_price", args={"item": "apple"})})
+        monkeypatch.setattr(GeminiProvider, "generate", fake)
+
+        result = agent.run("price of apple")
+        assert result.content.startswith("[Tool Guardrail Blocked]")
+
+    def test_full_signature_with_agent_still_works(self, monkeypatch):
+        """Regression guard: the abbreviation must not break the documented
+        full-arity signature that every other test in this file relies on."""
+        @input_guardrail
+        def full_sig(ctx, agent, user_input):
+            return GuardrailFunctionOutput(tripwire_triggered=False, output_info=agent.name)
+
+        agent = make_agent("Bot", input_guardrails=[full_sig])
+        fake, _ = _scripted_provider({"Bot": "ok"})
+        monkeypatch.setattr(GeminiProvider, "generate", fake)
+        result = agent.run("hi")
+        assert result.content == "ok"
+
+    def test_abbreviated_async_signature_also_works(self, monkeypatch):
+        @input_guardrail
+        async def block_math_async(ctx, message):
+            return GuardrailFunctionOutput(tripwire_triggered="+" in message)
+
+        agent = make_agent("Bot", input_guardrails=[block_math_async])
+        fake, _ = _scripted_provider({"Bot": "ok"})
+        monkeypatch.setattr(GeminiProvider, "generate", fake)
+
+        result = agent.run("hello")
+        assert result.content == "ok"
+        with pytest.raises(InputGuardrailTripwireTriggered):
+            agent.run("2 + 2")
+
+
+# ─────────────────────────────────────────────
 # Handoff interaction (re-run behavior)
 # ─────────────────────────────────────────────
 

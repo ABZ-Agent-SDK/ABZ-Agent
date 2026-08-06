@@ -15,8 +15,8 @@ if TYPE_CHECKING:
 
 class GuardrailFunctionOutput(BaseModel):
     """Result returned by a guardrail function."""
-    output_info: Any
     tripwire_triggered: bool
+    output_info: Any = None
     reason: Optional[str] = None
 
 
@@ -66,8 +66,29 @@ class _Guardrail(Generic[TInput]):
     fn: Callable[..., Any]
     name: str
 
+    def _adapt_args(self, args: tuple) -> tuple:
+        """
+        Every guardrail is normally called with `agent` as its 2nd positional
+        argument (e.g. input: `(ctx, agent, user_input)`) — but `agent` is the
+        least-used parameter across all four guardrail kinds, and a function
+        that simply omits it (`def fn(ctx, user_input): ...`) reads as
+        perfectly valid Python. Rather than fail with a confusing arity
+        TypeError, detect that the guardrail declared exactly one fewer
+        parameter than it was called with and drop `agent` (args[1]) to match.
+        """
+        if len(args) < 2:
+            return args
+        try:
+            n_params = len(inspect.signature(self.fn).parameters)
+        except (TypeError, ValueError):
+            return args
+        if n_params == len(args) - 1:
+            return (args[0], *args[2:])
+        return args
+
     def run(self, *args, **kwargs) -> GuardrailFunctionOutput:
         """Execute guardrail function; supports sync/async via asyncio.run()."""
+        args = self._adapt_args(args)
         try:
             if inspect.iscoroutinefunction(self.fn):
                 try:
@@ -104,6 +125,9 @@ def input_guardrail(fn: Callable[..., Any]) -> _Guardrail[str]:
 
     Signature:
       def my_guardrail(ctx, agent, input: str | list[Any]) -> GuardrailFunctionOutput: ...
+
+    `agent` may be omitted if unused:
+      def my_guardrail(ctx, input: str | list[Any]) -> GuardrailFunctionOutput: ...
     """
     return _Guardrail(fn=fn, name=fn.__name__)
 
@@ -114,6 +138,9 @@ def output_guardrail(fn: Callable[..., Any]) -> _Guardrail[Any]:
 
     Signature:
       def my_guardrail(ctx, agent, output: Any) -> GuardrailFunctionOutput: ...
+
+    `agent` may be omitted if unused:
+      def my_guardrail(ctx, output: Any) -> GuardrailFunctionOutput: ...
     """
     return _Guardrail(fn=fn, name=fn.__name__)
 
@@ -124,6 +151,9 @@ def tool_input_guardrail(fn: Callable[..., Any]) -> _Guardrail[Any]:
 
     Signature:
       def my_guardrail(ctx, agent, call: ToolCall, kwargs: dict) -> GuardrailFunctionOutput: ...
+
+    `agent` may be omitted if unused:
+      def my_guardrail(ctx, call: ToolCall, kwargs: dict) -> GuardrailFunctionOutput: ...
 
     `kwargs` are the tool's already-validated arguments (post `Tool.parse_args()`).
     A trip blocks the tool call and substitutes a message for the model instead
@@ -139,6 +169,9 @@ def tool_output_guardrail(fn: Callable[..., Any]) -> _Guardrail[Any]:
 
     Signature:
       def my_guardrail(ctx, agent, call: ToolCall, kwargs: dict, output: str) -> GuardrailFunctionOutput: ...
+
+    `agent` may be omitted if unused:
+      def my_guardrail(ctx, call: ToolCall, kwargs: dict, output: str) -> GuardrailFunctionOutput: ...
     """
     return _Guardrail(fn=fn, name=fn.__name__)
 

@@ -418,9 +418,13 @@ except Exception as e:
     print(e)   # Input guardrail 'no_profanity' tripwire triggered.
 ```
 
-- A guardrail function must return `GuardrailFunctionOutput(output_info, tripwire_triggered, reason=None)`; returning anything else raises `TypeError`.
+- A guardrail function must return `GuardrailFunctionOutput(tripwire_triggered, output_info=None, reason=None)`; returning anything else raises `TypeError`. `output_info` defaults to `None`, so `GuardrailFunctionOutput(tripwire_triggered=False)` alone is valid — you don't need to pass `output_info` when there's nothing to report.
 - If `tripwire_triggered` is `True`, `run()` raises `InputGuardrailTripwireTriggered` (input) — this happens **before** the user message is sent to the model.
 - Both sync and async guardrail functions are supported.
+- The `agent` parameter may be omitted from any guardrail function's signature if
+  you don't need it — `def my_guardrail(ctx, user_input): ...` works exactly the
+  same as the full `def my_guardrail(ctx, agent, user_input): ...`. This applies
+  to all four guardrail kinds (input, output, tool input, tool output).
 
 ### Output guardrails
 

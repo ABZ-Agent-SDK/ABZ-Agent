@@ -567,7 +567,7 @@ agent = Agent(
 )
 ```
 
-Both sync and async guardrail functions are supported. A guardrail must return a `GuardrailFunctionOutput` — anything else raises `TypeError`.
+Both sync and async guardrail functions are supported. A guardrail must return a `GuardrailFunctionOutput` — anything else raises `TypeError`. `output_info` is optional and defaults to `None`, and the `agent` parameter can be dropped from any guardrail's signature if you don't need it: `def my_guardrail(ctx, user_input): ...` works just as well as the full 3-arg form.
 
 ### Tool guardrails
 
