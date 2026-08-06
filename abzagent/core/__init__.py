@@ -26,13 +26,18 @@ try:
     from .guardrails import (  # noqa: F401
         input_guardrail,
         output_guardrail,
+        tool_input_guardrail,
+        tool_output_guardrail,
         GuardrailFunctionOutput,
         InputGuardrailTripwireTriggered,
         OutputGuardrailTripwireTriggered,
+        ToolGuardrailTripwireTriggered,
     )
 except Exception:
     input_guardrail = output_guardrail = GuardrailFunctionOutput = None  # type: ignore
+    tool_input_guardrail = tool_output_guardrail = None  # type: ignore
     InputGuardrailTripwireTriggered = OutputGuardrailTripwireTriggered = None  # type: ignore
+    ToolGuardrailTripwireTriggered = None  # type: ignore
 
 __all__ = [
     # Core
@@ -48,6 +53,8 @@ __all__ = [
     "GenerationResult", "ModelProvider",
     # Optional
     "input_guardrail", "output_guardrail",
+    "tool_input_guardrail", "tool_output_guardrail",
     "GuardrailFunctionOutput",
     "InputGuardrailTripwireTriggered", "OutputGuardrailTripwireTriggered",
+    "ToolGuardrailTripwireTriggered",
 ]

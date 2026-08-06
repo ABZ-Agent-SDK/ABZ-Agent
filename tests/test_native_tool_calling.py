@@ -50,6 +50,18 @@ class TestNativeModePromptOmitsManifest:
         assert "You are a ROUTER first" in prompt  # native hint
         assert 'Return ONLY a JSON object for the tool call' not in prompt  # fallback hint's JSON instructions
 
+    def test_native_hint_forbids_asking_for_confirmation(self):
+        specialist = Agent(name="Specialist", instructions="Handle specialist work.", model="gemini-2.0-flash")
+        agent = Agent(name="Router", instructions="Route work.", model="gemini-2.0-flash", handoffs=[specialist])
+        prompt = agent._build_prompt("hi", effective_instructions="Route work.")
+        assert "do not ask the user for permission or confirmation" in prompt
+
+    def test_native_hint_has_tie_breaker_rule(self):
+        specialist = Agent(name="Specialist", instructions="Handle specialist work.", model="gemini-2.0-flash")
+        agent = Agent(name="Router", instructions="Route work.", model="gemini-2.0-flash", handoffs=[specialist])
+        prompt = agent._build_prompt("hi", effective_instructions="Route work.")
+        assert "pick the single best match yourself" in prompt
+
 
 class TestFallbackModePromptIncludesManifest:
     def test_tool_manifest_and_json_blob_teaching_present_when_not_native(self, monkeypatch):

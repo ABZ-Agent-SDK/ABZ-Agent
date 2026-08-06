@@ -143,6 +143,8 @@ agent = Agent(
     output_type=None,                       # optional Pydantic model for structured output
     input_guardrails=[],                    # optional list of input guardrail functions
     output_guardrails=[],                   # optional list of output guardrail functions
+    tool_input_guardrails=[],               # optional list of tool input guardrail functions
+    tool_output_guardrails=[],              # optional list of tool output guardrail functions
 )
 
 result = agent.run("Hello!")
@@ -567,6 +569,32 @@ agent = Agent(
 
 Both sync and async guardrail functions are supported. A guardrail must return a `GuardrailFunctionOutput` — anything else raises `TypeError`.
 
+### Tool guardrails
+
+Tool guardrails wrap a single tool call, agent-level: `tool_input_guardrails=` runs before the tool executes, `tool_output_guardrails=` runs after it returns. Unlike input/output guardrails, a trip **degrades gracefully by default instead of raising** — the model gets `"[Tool Guardrail Blocked] {reason}"` as the tool's result and can react to it, the same way an ordinary tool error is fed back.
+
+```python
+from abzagent.core.guardrails import tool_input_guardrail, GuardrailFunctionOutput
+
+@tool_input_guardrail
+def block_forbidden_item(ctx, agent, call, kwargs) -> GuardrailFunctionOutput:
+    triggered = kwargs.get("item") == "forbidden"
+    return GuardrailFunctionOutput(
+        output_info=None,
+        tripwire_triggered=triggered,
+        reason="That item can't be looked up." if triggered else None,
+    )
+
+agent = Agent(
+    name="Shop",
+    instructions="Help with prices.",
+    tools=[lookup_price],
+    tool_input_guardrails=[block_forbidden_item],
+)
+```
+
+`kwargs` are the tool's already-validated arguments, not the model's raw args. To hard-abort the whole run instead of degrading gracefully, `raise ToolGuardrailTripwireTriggered(...)` directly from inside the guardrail function.
+
 ---
 
 ## Handoffs
@@ -698,6 +726,10 @@ memory, tools, structured output, and handoffs all work automatically since each
 just a normal `run()` call. It handles reading input, printing responses, `exit`/`quit`,
 and Ctrl+C for you, and keeps the session going instead of crashing if a single turn
 errors out.
+
+Each response line is labeled with `result.last_agent.name` — if a turn hands off to a
+specialist, the reply is printed as `Billing: ...`, not `Assistant: ...`, right below the
+`🔄 Handoff` diagram.
 
 ---
 

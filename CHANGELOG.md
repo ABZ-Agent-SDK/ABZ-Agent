@@ -5,6 +5,33 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [0.5.0] - 2026-08-06
+
+### Added
+
+- **Output guardrails are now actually enforced.** `output_guardrails=[...]` previously had
+  no effect; `Agent.run()` now runs them at every return point (single-turn, iterative, and
+  the iteration-limit fallback) and raises `OutputGuardrailTripwireTriggered` on a trip.
+- **Tool guardrails**: new `tool_input_guardrails=[...]` / `tool_output_guardrails=[...]`
+  on `Agent(...)`, with `@tool_input_guardrail` / `@tool_output_guardrail` decorators. A
+  tripped tool guardrail degrades gracefully by default (the model gets a
+  `"[Tool Guardrail Blocked] ..."` substitution instead of the tool's real result) — raise
+  `ToolGuardrailTripwireTriggered` yourself from inside a guardrail if you want a trip to
+  hard-abort the run instead.
+
+### Changed
+
+- Router prompt hardened for smaller/free models: agents with `handoffs=[...]` are now
+  explicitly told not to ask the user for permission before transferring, and to pick the
+  single best-matching specialist instead of hedging when more than one could apply.
+- Auto-derived handoff tool descriptions no longer echo a redundant "You are `<Name>`."
+  persona clause from the target agent's instructions, and truncate on a word boundary
+  instead of a hard character cut.
+- `agent.run(interactive=True)` now labels each response with the agent that actually
+  produced it (`result.last_agent.name`) instead of always the agent the loop was started
+  on — a handoff's specialist is credited by name, right below its `🔄 Handoff` diagram.
+- Fixed a bug where every output guardrail ran twice per check.
+
 ## [0.4.0] - 2026-08-05
 
 ### Changed

@@ -22,7 +22,10 @@ transfer_to_<agent_name_slug> tools is a clear match for what the user is asking
 
 - If a specialist tool clearly matches this specific request: call it immediately. \
 Do not draft an answer first, do not partially answer, do not explain that you're \
-transferring — just call the tool.
+transferring, and do not ask the user for permission or confirmation first — just call \
+the tool, right now, in this turn.
+- If more than one specialist could plausibly match, pick the single best match yourself. \
+Do not ask the user to choose between them.
 - If no specialist tool matches this specific request (e.g. small talk, or a question \
 none of your specialists cover): answer normally yourself.
 - A transfer is a complete, final action. Never call a transfer tool and then also \
@@ -45,7 +48,10 @@ transfer tools is a clear match for what the user is asking.
 
 - If a specialist tool clearly matches this specific request: call it immediately. \
 Do not draft an answer first, do not partially answer, do not explain that you're \
-transferring — just call the tool.
+transferring, and do not ask the user for permission or confirmation first — just call \
+the tool, right now, in this turn.
+- If more than one specialist could plausibly match, pick the single best match yourself. \
+Do not ask the user to choose between them.
 - If no specialist tool matches this specific request (e.g. small talk, or a question \
 none of your specialists cover): answer normally yourself.
 - A transfer is a complete, final action. Never call a transfer tool and then also \
@@ -187,6 +193,28 @@ def _slugify(name: str) -> str:
 _MAX_AUTO_DESCRIPTION_INSTRUCTIONS_CHARS = 300
 
 
+def _strip_redundant_persona_prefix(text: str, agent_name: str) -> str:
+    """Strip a leading "You are <Name>[.,]" clause from instructions before it's
+    embedded into a tool description — `_auto_description` already restates the
+    agent's name via "Transfer to the '<Name>' agent.", so echoing a persona
+    clause with the same name again right after reads redundant."""
+    pattern = rf"^you\s+are\s+(the\s+)?{re.escape(agent_name)}\b[.,]?\s*"
+    stripped = re.sub(pattern, "", text, count=1, flags=re.IGNORECASE).strip()
+    return stripped or text
+
+
+def _truncate_description_text(text: str, limit: int) -> str:
+    """Truncate at the last word boundary at or before `limit`, so a long
+    instructions string never gets cut off mid-word inside a tool description."""
+    if len(text) <= limit:
+        return text
+    truncated = text[:limit]
+    space = truncated.rfind(" ")
+    if space > 0:
+        truncated = truncated[:space]
+    return truncated.rstrip() + "..."
+
+
 def _auto_description(target_agent: "Agent") -> str:
     """
     Default tool description for a handoff, with no override given. Auto-derives
@@ -199,10 +227,9 @@ def _auto_description(target_agent: "Agent") -> str:
     """
     instructions_src = getattr(target_agent, "_instructions_src", None)
     if isinstance(instructions_src, str):
-        text = instructions_src.strip()
+        text = _strip_redundant_persona_prefix(instructions_src.strip(), target_agent.name)
         if text:
-            if len(text) > _MAX_AUTO_DESCRIPTION_INSTRUCTIONS_CHARS:
-                text = text[:_MAX_AUTO_DESCRIPTION_INSTRUCTIONS_CHARS].rstrip() + "..."
+            text = _truncate_description_text(text, _MAX_AUTO_DESCRIPTION_INSTRUCTIONS_CHARS)
             return f"Transfer to the '{target_agent.name}' agent. Use this when the request matches: {text}"
 
     return f"Transfer the conversation to the '{target_agent.name}' agent."

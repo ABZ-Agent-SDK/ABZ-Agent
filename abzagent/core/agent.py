@@ -54,10 +54,19 @@ except Exception as _handoffs_import_error:
 
 # optional guardrails
 try:
-    from .guardrails import run_input_guardrails, run_output_guardrails
+    from .guardrails import (
+        run_input_guardrails,
+        run_output_guardrails,
+        run_tool_input_guardrails,
+        run_tool_output_guardrails,
+        ToolGuardrailTripwireTriggered,
+    )
 except Exception:
     def run_input_guardrails(*args, **kwargs): return None
     def run_output_guardrails(*args, **kwargs): return None
+    def run_tool_input_guardrails(*args, **kwargs): return None
+    def run_tool_output_guardrails(*args, **kwargs): return None
+    ToolGuardrailTripwireTriggered = RuntimeError
 
 from ..config import SDKConfig
 from ..providers.base import GenerationResult
@@ -113,6 +122,8 @@ class Agent:
         output_type: Optional[Type[Any]] = None,
         input_guardrails: Optional[Sequence[Any]] = None,
         output_guardrails: Optional[Sequence[Any]] = None,
+        tool_input_guardrails: Optional[Sequence[Any]] = None,
+        tool_output_guardrails: Optional[Sequence[Any]] = None,
     ) -> None:
         if not name:
             raise ValueError("Agent 'name' is required.")
@@ -131,6 +142,8 @@ class Agent:
         )
         self.input_guardrails = list(input_guardrails or [])
         self.output_guardrails = list(output_guardrails or [])
+        self.tool_input_guardrails = list(tool_input_guardrails or [])
+        self.tool_output_guardrails = list(tool_output_guardrails or [])
 
         self.model = self._resolve_model_param(
             model=model,
@@ -266,7 +279,8 @@ class Agent:
                 print(f"[Error] {e}")
                 continue
 
-            print(f"{self.name}: {result.content}")
+            responder = result.last_agent.name if result.last_agent is not None else self.name
+            print(f"{responder}: {result.content}")
 
     def _run(
         self,
@@ -311,13 +325,14 @@ class Agent:
                         tool, tool_call, steps=steps, context=context,
                         _handoff_path=_handoff_path, _interactive=_interactive,
                     )
-                obs = self._execute_tool(tool_call)
+                obs = self._execute_tool(tool_call, ctx=ctx_for_run)
                 self.memory.remember("tool", obs)
                 return AgentResult(content=obs, steps=[call_repr, obs], last_agent=self)
 
             model_out = self._normalize_output(result.text)
             steps.append(model_out)
             final_text, parsed = self._resolve_output(model_out, base_prompt=prompt, steps=steps)
+            self._check_output_guardrails(parsed if parsed is not None else final_text, ctx=ctx_for_run)
             return AgentResult(content=final_text, steps=steps, parsed=parsed, last_agent=self)
 
         # Iterative mode
@@ -340,7 +355,7 @@ class Agent:
                         tool, tool_call, steps=steps, context=context,
                         _handoff_path=_handoff_path, _interactive=_interactive,
                     )
-                obs = self._execute_tool(tool_call)
+                obs = self._execute_tool(tool_call, ctx=ctx_for_run)
                 self.memory.remember("tool", obs)
                 user_message = f"TOOL RESULT ({tool_call.tool}): {obs}"
                 continue
@@ -348,9 +363,11 @@ class Agent:
             model_out = self._normalize_output(result.text)
             steps.append(model_out)
             final_text, parsed = self._resolve_output(model_out, base_prompt=prompt, steps=steps)
+            self._check_output_guardrails(parsed if parsed is not None else final_text, ctx=ctx_for_run)
             return AgentResult(content=final_text, steps=steps, parsed=parsed, last_agent=self)
 
         fallback = "Reached iteration limit without final answer.\n\n" + (steps[-1] if steps else "")
+        self._check_output_guardrails(fallback, ctx=ctx_for_run)
         return AgentResult(content=fallback, steps=steps, last_agent=self)
 
     def _perform_handoff(
@@ -525,20 +542,44 @@ class Agent:
             self.instructions = text
             return text
 
-    def _execute_tool(self, call: ToolCall) -> str:
+    def _execute_tool(self, call: ToolCall, *, ctx: RunContextWrapper) -> str:
         tool = self.tools.get(call.tool)
         if not tool:
             return f"[Tool Error] Unknown tool: {call.tool}"
 
         try:
             kwargs = tool.parse_args(call.args)
-            if self.verbose:
-                print(f"Executing tool {call.tool} with kwargs={kwargs}")
-            return tool.run(**kwargs)
         except ValueError as ve:
             return self._format_validation_error(ve)
+
+        if self.tool_input_guardrails:
+            blocked = run_tool_input_guardrails(
+                guards=self.tool_input_guardrails, ctx=ctx, agent=self, call=call, kwargs=kwargs,
+            )
+            if blocked is not None:
+                return blocked
+
+        try:
+            if self.verbose:
+                print(f"Executing tool {call.tool} with kwargs={kwargs}")
+            output = tool.run(**kwargs)
         except Exception as e:
             return f"[Tool Error] {e}"
+
+        if self.tool_output_guardrails:
+            blocked = run_tool_output_guardrails(
+                guards=self.tool_output_guardrails, ctx=ctx, agent=self, call=call, kwargs=kwargs, output=output,
+            )
+            if blocked is not None:
+                return blocked
+
+        return output
+
+    def _check_output_guardrails(self, final_output: Any, *, ctx: RunContextWrapper) -> None:
+        if self.output_guardrails:
+            run_output_guardrails(
+                guards=self.output_guardrails, ctx=ctx, agent=self, final_output=final_output,
+            )
 
     def _format_validation_error(self, ve: ValueError) -> str:
         # Tool.parse_args() wraps pydantic's ValidationError in a plain ValueError

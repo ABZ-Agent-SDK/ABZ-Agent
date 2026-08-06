@@ -222,3 +222,36 @@ class TestMisuseRaisesValueError:
 class TestChatRemoved:
     def test_chat_method_no_longer_exists(self, agent):
         assert not hasattr(agent, "chat")
+
+
+class TestInteractivePrintsRespondingAgent:
+    """A handoff's specialist, not the root agent, produced the final answer —
+    the interactive REPL's response line should say so."""
+
+    def test_response_line_uses_last_agent_after_handoff(self, monkeypatch, capsys):
+        from abzagent.core.tools import ToolCall
+
+        billing = Agent(name="Billing", instructions="Handle billing.", model="gemini-2.0-flash")
+        support = Agent(
+            name="Support", instructions="Route to specialists.", model="gemini-2.0-flash", handoffs=[billing]
+        )
+
+        def fake_generate(self, prompt, *, tools=None, output_schema=None, strict=True):
+            if "[AGENT NAME]: Support" in prompt:
+                return GenerationResult(tool_calls=[ToolCall(tool="transfer_to_billing", args={})])
+            return GenerationResult(text="Sure, here's your invoice.")
+
+        monkeypatch.setattr(GeminiProvider, "generate", fake_generate)
+        _feed_input(monkeypatch, ["invoice help", "exit"])
+        support.run(interactive=True)
+
+        out = capsys.readouterr().out
+        assert "Billing: Sure, here's your invoice." in out
+        assert "Support: Sure, here's your invoice." not in out
+
+    def test_response_line_still_uses_self_when_no_handoff(self, agent, monkeypatch, capsys):
+        """Regression guard: non-handoff agents are unaffected (last_agent is self)."""
+        _feed_input(monkeypatch, ["hello", "exit"])
+        agent.run(interactive=True)
+        out = capsys.readouterr().out
+        assert "Assistant: canned response" in out

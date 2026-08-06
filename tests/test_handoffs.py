@@ -504,6 +504,40 @@ class TestToolDescriptionAutoDerivation:
         assert "..." in tool.description
         assert len(tool.description) < 400
 
+    def test_truncation_does_not_cut_mid_word(self):
+        words = ("handle billing invoices refunds and payment disputes " * 10).strip()
+        billing = Agent(name="Billing", instructions=words, model="gemini-2.0-flash")
+        host = make_agent("Host", handoffs=[billing])
+        tool = host.tools["transfer_to_billing"]
+        before_ellipsis = tool.description.split("...")[0]
+        last_word = before_ellipsis.rstrip().split()[-1]
+        assert last_word in words.split()  # a real whole word, not a mid-word fragment
+
+    def test_redundant_persona_prefix_is_stripped(self):
+        billing = Agent(
+            name="Billing", instructions="You are Billing. Handle billing questions.", model="gemini-2.0-flash"
+        )
+        host = make_agent("Host", handoffs=[billing])
+        tool = host.tools["transfer_to_billing"]
+        assert "You are Billing" not in tool.description
+        assert "Handle billing questions." in tool.description
+
+    def test_persona_prefix_stripping_is_case_insensitive(self):
+        billing = Agent(
+            name="Billing", instructions="you are billing, handle billing questions.", model="gemini-2.0-flash"
+        )
+        host = make_agent("Host", handoffs=[billing])
+        tool = host.tools["transfer_to_billing"]
+        assert "you are billing" not in tool.description.lower()
+
+    def test_persona_only_instructions_fall_back_to_original_text(self):
+        """Stripping the persona clause must never leave an empty description."""
+        billing = Agent(name="Billing", instructions="You are Billing.", model="gemini-2.0-flash")
+        host = make_agent("Host", handoffs=[billing])
+        tool = host.tools["transfer_to_billing"]
+        assert tool.description  # non-empty
+        assert "Billing" in tool.description
+
 
 class TestInteractiveHandoffVisualization:
     def test_no_output_during_plain_non_interactive_run(self, monkeypatch, capsys):

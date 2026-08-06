@@ -65,6 +65,8 @@ Agent(
     output_type: Optional[Type[Any]] = None,
     input_guardrails: Optional[Sequence[Any]] = None,
     output_guardrails: Optional[Sequence[Any]] = None,
+    tool_input_guardrails: Optional[Sequence[Any]] = None,
+    tool_output_guardrails: Optional[Sequence[Any]] = None,
 )
 ```
 
@@ -84,8 +86,10 @@ All parameters are keyword-only.
 | `validate_model` | `bool` | `False` | Accepted for forward-compatibility but **currently has no effect** — the internal model resolver ignores it. |
 | `include_experimental` | `bool` | `True` | Same as above — accepted but currently unused. |
 | `output_type` | `Type \| None` | `None` | Enables structured output. When set, `AgentResult.parsed` is a validated instance of this type. See [Structured output](#structured-output). |
-| `input_guardrails` | `Sequence` | `None` | List of `@input_guardrail`-decorated functions, run before the model sees the user message. **Fully functional.** |
-| `output_guardrails` | `Sequence` | `None` | List of `@output_guardrail`-decorated functions. ⚠️ **Accepted and stored but never executed** — see [Guardrails](#guardrails). |
+| `input_guardrails` | `Sequence` | `None` | List of `@input_guardrail`-decorated functions, run before the model sees the user message. |
+| `output_guardrails` | `Sequence` | `None` | List of `@output_guardrail`-decorated functions, run on the final answer before `run()` returns. See [Guardrails](#guardrails). |
+| `tool_input_guardrails` | `Sequence` | `None` | List of `@tool_input_guardrail`-decorated functions, run before each tool call executes. See [Tool guardrails](#tool-guardrails). |
+| `tool_output_guardrails` | `Sequence` | `None` | List of `@tool_output_guardrail`-decorated functions, run after each tool call returns. See [Tool guardrails](#tool-guardrails). |
 
 ### API key resolution order
 
@@ -176,6 +180,10 @@ in interactive mode too, because each turn just is a normal `run()` call.
 - Blank input is silently skipped (re-prompts without calling `run()`).
 - `context` is forwarded to every per-turn `run()` call exactly as it would be if you called `run()` yourself.
 - Calling `run()` with neither a `user_message` nor `interactive=True`, or with both at once, raises `ValueError`.
+- Each response line is printed as `{responder}: {content}`, where `{responder}` is
+  `result.last_agent.name` — the agent that actually produced the answer, not necessarily the
+  agent `interactive=True` was called on. If a turn triggers a handoff, the line after the
+  `🔄 Handoff` diagram is labeled with the specialist's name, not the router's.
 
 ### `agent.as_tool(*, tool_name: str, tool_description: str) -> Tool`
 
@@ -414,11 +422,100 @@ except Exception as e:
 - If `tripwire_triggered` is `True`, `run()` raises `InputGuardrailTripwireTriggered` (input) — this happens **before** the user message is sent to the model.
 - Both sync and async guardrail functions are supported.
 
-**⚠️ Output guardrails are accepted by the constructor and stored on `self.output_guardrails`,
-but `Agent.run()` never calls `run_output_guardrails()` on them.** Passing
-`output_guardrails=[...]` today has no observable effect — no exception will ever be raised
-from an output guardrail, and `length_check`-style examples will silently do nothing. Treat
-output guardrails as not-yet-wired-up rather than enforced.
+### Output guardrails
+
+```python
+from abzagent.core.guardrails import output_guardrail, GuardrailFunctionOutput
+
+@output_guardrail
+def length_check(ctx, agent, output) -> GuardrailFunctionOutput:
+    triggered = len(str(output)) > 500
+    return GuardrailFunctionOutput(
+        output_info=None,
+        tripwire_triggered=triggered,
+        reason="Response too long." if triggered else None,
+    )
+
+agent = Agent(
+    name="Terse",
+    instructions="Be helpful.",
+    output_guardrails=[length_check],
+)
+
+try:
+    agent.run("Explain the whole history of computing.")
+except Exception as e:
+    print(e)   # Output guardrail 'length_check' tripwire triggered.
+```
+
+Output guardrails run on the agent's final answer, immediately before `run()` returns —
+whether that answer comes back after a single turn, after the iterative tool-use loop
+finishes, or from the "reached iteration limit" fallback path. A trip raises
+`OutputGuardrailTripwireTriggered`. If `output_type` is set, the guardrail receives the
+already-validated, parsed object (`AgentResult.parsed`) instead of raw text — the same value
+your own code would see on `result.parsed`.
+
+## Tool guardrails
+
+Tool guardrails wrap a single tool call, agent-level (not per-tool): `tool_input_guardrails=`
+runs before the tool executes, `tool_output_guardrails=` runs after it returns.
+
+```python
+from abzagent.core.guardrails import tool_input_guardrail, tool_output_guardrail, GuardrailFunctionOutput
+
+@tool_input_guardrail
+def block_forbidden_item(ctx, agent, call, kwargs) -> GuardrailFunctionOutput:
+    triggered = kwargs.get("item") == "forbidden"
+    return GuardrailFunctionOutput(
+        output_info=None,
+        tripwire_triggered=triggered,
+        reason="That item can't be looked up." if triggered else None,
+    )
+
+agent = Agent(
+    name="Shop",
+    instructions="Help with prices.",
+    tools=[lookup_price],
+    tool_input_guardrails=[block_forbidden_item],
+)
+```
+
+- `kwargs` are the tool's already-validated arguments (after `Tool.parse_args()`), not the
+  model's raw args — a guardrail sees the same typed values the tool function itself would
+  receive.
+- Unlike input/output guardrails, a tripped tool guardrail **degrades gracefully by default —
+  it does not raise.** `tool.run()` is skipped (input-side) or its real result is discarded
+  (output-side), and the model instead receives `"[Tool Guardrail Blocked] {reason}"` as the
+  tool's result, the same way an ordinary tool error is fed back today. This lets the model
+  react and try something else instead of aborting the whole run.
+- To hard-abort the run when a tool guardrail trips, `raise ToolGuardrailTripwireTriggered(...)`
+  directly from inside the guardrail function — it propagates out of `run()` uncaught.
+- A guardrail that only cares about one tool can check `call.tool` itself and no-op otherwise
+  (return `tripwire_triggered=False`) — there's no per-tool guardrail config to reach for.
+- Tool guardrails don't gate handoffs — a `transfer_to_...` tool call is intercepted before
+  `_execute_tool()` is ever reached and is governed solely by the handoff machinery
+  (`CircularHandoffError`, `MaxHandoffDepthExceededError`).
+- `agent.as_tool()`-wrapped sub-agents are ordinary tool calls, so tool guardrails apply to
+  them automatically.
+- Both sync and async guardrail functions are supported, for all four guardrail decorators.
+
+### Guardrail exceptions
+
+```python
+from abzagent.core.guardrails import (
+    InputGuardrailTripwireTriggered,
+    OutputGuardrailTripwireTriggered,
+    ToolGuardrailTripwireTriggered,
+)
+```
+
+| Exception | When |
+|---|---|
+| `InputGuardrailTripwireTriggered` | An `input_guardrails` function tripped — raised before the user message reaches the model. |
+| `OutputGuardrailTripwireTriggered` | An `output_guardrails` function tripped — raised right before `run()` returns the final answer. |
+| `ToolGuardrailTripwireTriggered` | Not raised by the framework itself. Raise it yourself from inside a tool guardrail function if you want that trip to hard-abort the run instead of degrading gracefully (see above). |
+
+All three subclass `RuntimeError`.
 
 ## Handoffs
 
@@ -590,7 +687,8 @@ failure would raise. If you need uniform error handling across both providers, c
 | Feature | Status |
 |---|---|
 | `output_type` / `result.parsed` | **Implemented** — see [Structured output](#structured-output) |
-| `output_guardrails` | Accepted, stored, never invoked |
+| `output_guardrails` | **Implemented** — see [Guardrails](#guardrails) |
+| `tool_input_guardrails` / `tool_output_guardrails` | **Implemented** — see [Tool guardrails](#tool-guardrails) |
 | `handoffs=` / `handoff()` | **Implemented** — see [Handoffs](#handoffs) |
 | `agent.run(interactive=True)` | **Implemented** — see [Public methods](#public-methods) above |
 | `validate_model`, `include_experimental` | Accepted, currently no-ops |
