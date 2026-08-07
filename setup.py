@@ -5,7 +5,7 @@ README = Path(__file__).with_name("README.md").read_text(encoding="utf-8")
 
 setup(
     name="abz-agents",
-    version="0.5.3",
+    version="0.5.4",
     description="The fastest way to build AI agents using Google Gemini & Groq",
     long_description=README,
     long_description_content_type="text/markdown",

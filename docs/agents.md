@@ -86,8 +86,8 @@ All parameters are keyword-only.
 | `validate_model` | `bool` | `False` | Accepted for forward-compatibility but **currently has no effect** — the internal model resolver ignores it. |
 | `include_experimental` | `bool` | `True` | Same as above — accepted but currently unused. |
 | `output_type` | `Type \| None` | `None` | Enables structured output. When set, `AgentResult.parsed` is a validated instance of this type. See [Structured output](#structured-output). |
-| `input_guardrails` | `Sequence` | `None` | List of `@input_guardrail`-decorated functions, run before the model sees the user message. |
-| `output_guardrails` | `Sequence` | `None` | List of `@output_guardrail`-decorated functions, run on the final answer before `run()` returns. See [Guardrails](#guardrails). |
+| `input_guardrails` | `Sequence` | `None` | Run before the model sees the user message. Accepts plain policy strings (`["Block X."]`), `InputGuardrail(...)` objects, and `@input_guardrail`-decorated functions, freely mixed. See [Guardrails](#guardrails). |
+| `output_guardrails` | `Sequence` | `None` | Run on the final answer before `run()` returns. Accepts plain policy strings, `OutputGuardrail(...)` objects, and `@output_guardrail`-decorated functions, freely mixed. See [Guardrails](#guardrails). |
 | `tool_input_guardrails` | `Sequence` | `None` | List of `@tool_input_guardrail`-decorated functions, run before each tool call executes. See [Tool guardrails](#tool-guardrails). |
 | `tool_output_guardrails` | `Sequence` | `None` | List of `@tool_output_guardrail`-decorated functions, run after each tool call returns. See [Tool guardrails](#tool-guardrails). |
 
@@ -394,6 +394,57 @@ schema-validated final answer.
 
 Guardrails are validation functions wrapping the input and/or output of a `run()` call.
 
+### Natural-language guardrails (simplest option)
+
+Describe a policy in plain English and the SDK runs an LLM classifier behind the
+scenes — no classification code to write:
+
+```python
+agent = Agent(
+    name="SafeBot",
+    instructions="Be helpful.",
+    input_guardrails=["Block mathematical questions."],
+)
+
+try:
+    agent.run("What is 2 + 2?")
+except Exception as e:
+    print(e)   # Input guardrail 'Block mathematical questions.' tripwire triggered.
+```
+
+`output_guardrails=["..."]` works the same way, classifying the agent's final answer
+(or its parsed structured output, if `output_type` is set) instead of the user's message.
+
+For reuse across agents or to control which model does the classification, use the
+explicit form:
+
+```python
+from abzagent import InputGuardrail, OutputGuardrail
+
+math_guardrail = InputGuardrail("Block mathematical questions.", model="llama-3.1-8b-instant")
+agent = Agent(..., input_guardrails=[math_guardrail])
+```
+
+- **Model used**: by default, the classifier runs on a fast/cheap model on the *same
+  provider* as the host agent (so no extra API key is needed) — not the host's own
+  (possibly expensive) model. Pass `model=`/`api_key=` to `InputGuardrail(...)`/
+  `OutputGuardrail(...)` to use a different model instead.
+- **Cost**: each natural-language guardrail costs one extra, blocking LLM call —
+  input guardrails run before the main model call, output guardrails after. Stacking
+  several means that many sequential extra calls; there's no parallel execution (the
+  SDK's execution model is fully synchronous).
+- **Security note**: the content being classified is framed as untrusted data in the
+  classifier prompt (not as instructions), as defense-in-depth against a message that
+  tries to talk the classifier out of tripping. This reduces but does not eliminate
+  that risk — treat a natural-language guardrail the same way you'd treat any other
+  LLM-based moderation, not as an unbreakable filter.
+- Bare strings and `InputGuardrail(...)`/`OutputGuardrail(...)` objects can be freely
+  mixed with `@input_guardrail`/`@output_guardrail`-decorated functions in the same list.
+
+### Custom Python guardrails (advanced)
+
+For full control over the classification logic, write your own guardrail function:
+
 ```python
 from abzagent.core.guardrails import input_guardrail, GuardrailFunctionOutput
 
@@ -693,6 +744,7 @@ failure would raise. If you need uniform error handling across both providers, c
 | `output_type` / `result.parsed` | **Implemented** — see [Structured output](#structured-output) |
 | `output_guardrails` | **Implemented** — see [Guardrails](#guardrails) |
 | `tool_input_guardrails` / `tool_output_guardrails` | **Implemented** — see [Tool guardrails](#tool-guardrails) |
+| Natural-language guardrails (`input_guardrails=["..."]`) | **Implemented** for input/output only — see [Natural-language guardrails](#natural-language-guardrails-simplest-option). Tool guardrails' natural-language form is not yet supported. |
 | `handoffs=` / `handoff()` | **Implemented** — see [Handoffs](#handoffs) |
 | `agent.run(interactive=True)` | **Implemented** — see [Public methods](#public-methods) above |
 | `validate_model`, `include_experimental` | Accepted, currently no-ops |

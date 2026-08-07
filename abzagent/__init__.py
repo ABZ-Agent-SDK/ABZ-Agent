@@ -54,6 +54,8 @@ from .core.guardrails import (
     output_guardrail,
     tool_input_guardrail,
     tool_output_guardrail,
+    InputGuardrail,
+    OutputGuardrail,
     InputGuardrailTripwireTriggered,
     OutputGuardrailTripwireTriggered,
     ToolGuardrailTripwireTriggered,
@@ -96,6 +98,8 @@ __all__ = [
     "output_guardrail",
     "tool_input_guardrail",
     "tool_output_guardrail",
+    "InputGuardrail",
+    "OutputGuardrail",
     "InputGuardrailTripwireTriggered",
     "OutputGuardrailTripwireTriggered",
     "ToolGuardrailTripwireTriggered",
@@ -104,7 +108,7 @@ __all__ = [
     "GroqProvider",
 ]
 
-__version__ = "0.5.3"
+__version__ = "0.5.4"
 __author__ = "Abu Bakar"
 __license__ = "MIT"
 

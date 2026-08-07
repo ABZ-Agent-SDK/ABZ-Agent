@@ -5,6 +5,24 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [0.5.4] - 2026-08-07
+
+### Added
+
+- **Natural-language guardrails**: `input_guardrails=["Block mathematical questions."]` —
+  pass a plain-English policy string and the SDK runs an LLM classifier behind the
+  scenes instead of you writing classification code yourself. `output_guardrails=[...]`
+  works the same way, classifying the agent's final answer (or its parsed structured
+  output, if `output_type` is set). For reuse across agents or to pick a specific
+  classification model, use the explicit `InputGuardrail("policy", model=..., api_key=...)`
+  / `OutputGuardrail(...)` factories — both now exported from `abzagent`. By default the
+  classifier runs on a fast/cheap model on the *same provider* as the host agent, so no
+  extra API key is required. Bare strings, `InputGuardrail(...)`/`OutputGuardrail(...)`,
+  and existing `@input_guardrail`/`@output_guardrail`-decorated functions can be freely
+  mixed in the same list — fully backward compatible, no constructor signature changes.
+- New `abzagent/providers/factory.py` (`resolve_provider()`) — internal helper the
+  classifier uses to build a standalone provider instance for a given model.
+
 ## [0.5.3] - 2026-08-06
 
 ### Fixed

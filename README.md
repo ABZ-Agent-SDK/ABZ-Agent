@@ -141,8 +141,8 @@ agent = Agent(
     max_iterations=1,                       # optional, default: 1 (single-turn)
     api_key="...",                          # optional, overrides env var
     output_type=None,                       # optional Pydantic model for structured output
-    input_guardrails=[],                    # optional list of input guardrail functions
-    output_guardrails=[],                   # optional list of output guardrail functions
+    input_guardrails=[],                    # optional list — plain strings, InputGuardrail(...), or @input_guardrail functions
+    output_guardrails=[],                   # optional list — plain strings, OutputGuardrail(...), or @output_guardrail functions
     tool_input_guardrails=[],               # optional list of tool input guardrail functions
     tool_output_guardrails=[],              # optional list of tool output guardrail functions
 )
@@ -516,6 +516,35 @@ print(report.temperature_c)  # 24.0
 ## Guardrails
 
 Guardrails are validation functions that run on input before the agent processes it and/or on output before it is returned. If a guardrail's tripwire is triggered, an exception is raised immediately.
+
+### Natural-language guardrails (simplest option)
+
+Describe a policy in plain English — the SDK runs an LLM classifier for you, no code required:
+
+```python
+agent = Agent(
+    name="SafeBot",
+    instructions="Be helpful.",
+    input_guardrails=["Block mathematical questions."],
+)
+
+agent.run("What is 2 + 2?")  # raises InputGuardrailTripwireTriggered
+```
+
+For reuse across agents or to pick a specific classification model:
+
+```python
+from abzagent import InputGuardrail, OutputGuardrail
+
+math_guardrail = InputGuardrail("Block mathematical questions.", model="llama-3.1-8b-instant")
+agent = Agent(..., input_guardrails=[math_guardrail])
+```
+
+By default the classifier uses a fast/cheap model on the *same provider* as the host agent (no extra API key needed) — pass `model=`/`api_key=` for a different one. Each natural-language guardrail costs one extra blocking LLM call per run (no parallel execution), and the classified content is framed as untrusted data as defense-in-depth against prompt injection — not a guarantee. Bare strings, `InputGuardrail(...)`/`OutputGuardrail(...)`, and `@input_guardrail`-decorated functions can all be mixed in the same list.
+
+### Custom Python guardrails (advanced)
+
+For full control, write your own classification logic:
 
 ### Input guardrail
 

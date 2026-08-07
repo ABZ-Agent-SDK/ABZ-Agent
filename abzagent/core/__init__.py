@@ -28,6 +28,8 @@ try:
         output_guardrail,
         tool_input_guardrail,
         tool_output_guardrail,
+        InputGuardrail,
+        OutputGuardrail,
         GuardrailFunctionOutput,
         GuardrailResult,
         Guardrail,
@@ -38,6 +40,7 @@ try:
 except Exception:
     input_guardrail = output_guardrail = GuardrailFunctionOutput = None  # type: ignore
     tool_input_guardrail = tool_output_guardrail = None  # type: ignore
+    InputGuardrail = OutputGuardrail = None  # type: ignore
     GuardrailResult = Guardrail = None  # type: ignore
     InputGuardrailTripwireTriggered = OutputGuardrailTripwireTriggered = None  # type: ignore
     ToolGuardrailTripwireTriggered = None  # type: ignore
@@ -57,6 +60,7 @@ __all__ = [
     # Optional
     "input_guardrail", "output_guardrail",
     "tool_input_guardrail", "tool_output_guardrail",
+    "InputGuardrail", "OutputGuardrail",
     "GuardrailFunctionOutput", "GuardrailResult", "Guardrail",
     "InputGuardrailTripwireTriggered", "OutputGuardrailTripwireTriggered",
     "ToolGuardrailTripwireTriggered",

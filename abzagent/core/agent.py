@@ -60,6 +60,8 @@ try:
         run_tool_input_guardrails,
         run_tool_output_guardrails,
         ToolGuardrailTripwireTriggered,
+        InputGuardrail,
+        OutputGuardrail,
     )
 except Exception:
     def run_input_guardrails(*args, **kwargs): return None
@@ -67,6 +69,7 @@ except Exception:
     def run_tool_input_guardrails(*args, **kwargs): return None
     def run_tool_output_guardrails(*args, **kwargs): return None
     ToolGuardrailTripwireTriggered = RuntimeError
+    InputGuardrail = OutputGuardrail = None
 
 from ..config import SDKConfig
 from ..providers.base import GenerationResult
@@ -140,8 +143,12 @@ class Agent:
         self._output_schema: Optional[AgentOutputSchema] = (
             AgentOutputSchema(output_type) if output_type is not None else None
         )
-        self.input_guardrails = list(input_guardrails or [])
-        self.output_guardrails = list(output_guardrails or [])
+        self.input_guardrails = [
+            InputGuardrail(g) if isinstance(g, str) else g for g in (input_guardrails or [])
+        ]
+        self.output_guardrails = [
+            OutputGuardrail(g) if isinstance(g, str) else g for g in (output_guardrails or [])
+        ]
         self.tool_input_guardrails = list(tool_input_guardrails or [])
         self.tool_output_guardrails = list(tool_output_guardrails or [])
 
