@@ -345,12 +345,21 @@ class Agent:
         # Iterative mode
         for _i in range(self.max_iterations):
             effective_instructions = self._resolve_instructions(ctx_for_run)
+            # On the last available iteration, don't offer tools — force a
+            # plain-text answer instead of letting the model spend its final
+            # turn on yet another tool call (which would exhaust the budget
+            # with nothing to show for it; see "Reached iteration limit"
+            # below). This guarantees any max_iterations >= 2 setup ends in a
+            # real answer for a normal one-or-more-tool-call workflow, even
+            # if an earlier turn called the wrong tool or re-requested one.
+            is_last_iteration = _i == self.max_iterations - 1
             prompt = self._build_prompt(
                 user_message if _i == 0 else "Continue.",
                 effective_instructions=effective_instructions,
+                allow_tools=not is_last_iteration,
             )
 
-            result = self._generate_and_dispatch(prompt)
+            result = self._generate_and_dispatch(prompt, allow_tools=not is_last_iteration)
 
             tool_call = result.tool_calls[0] if result.tool_calls else None
             if tool_call:
@@ -606,9 +615,16 @@ class Agent:
                 return f"I need the following information to proceed: {', '.join(missing_fields)}"
         return f"Invalid arguments: {ve}"
 
-    def _build_prompt(self, user_message: str, *, effective_instructions: str) -> str:
+    def _build_prompt(
+        self, user_message: str, *, effective_instructions: str, allow_tools: bool = True
+    ) -> str:
         native = self.provider.supports_native_tools
-        base = BASE_SYSTEM_PROMPT_NATIVE if native else BASE_SYSTEM_PROMPT
+        # When this turn isn't allowed to offer tools (see allow_tools below),
+        # there's nothing to teach the model about calling one — use the
+        # plain base prompt (same one native-mode already uses) regardless
+        # of provider, so a fallback-mode model isn't still told "output a
+        # tool-call JSON blob" on a turn where no tool schemas are provided.
+        base = BASE_SYSTEM_PROMPT_NATIVE if (native or not allow_tools) else BASE_SYSTEM_PROMPT
         system = (
             f"{base}\n\n"
             f"[AGENT NAME]: {self.name}\n"
@@ -617,7 +633,7 @@ class Agent:
         )
         # In native mode, tools are advertised to the provider structurally
         # (see _generate_and_dispatch) — a text manifest would be redundant.
-        if self.tools and not native:
+        if self.tools and not native and allow_tools:
             manifest = ["Available TOOLS:"]
             for n, t in self.tools.items():
                 desc = (t.description or "").strip().replace("\n", " ")
@@ -635,30 +651,37 @@ class Agent:
         # reminder for getting weaker models to actually transfer instead of
         # answering directly.
         tail = ""
-        if self._handoffs:
+        if self._handoffs and allow_tools:
             tail = "\n\n" + (RECOMMENDED_PROMPT_PREFIX_NATIVE if native else RECOMMENDED_PROMPT_PREFIX)
 
         return f"[SYSTEM]: {system}\n\n{history}{tail}\n\n[USER]: {user_message}"
 
-    def _generate_and_dispatch(self, prompt: str) -> GenerationResult:
+    def _generate_and_dispatch(self, prompt: str, *, allow_tools: bool = True) -> GenerationResult:
         """
         Calls the provider once and returns a GenerationResult with either
         `.text` or `.tool_calls` populated — regardless of whether the
         provider used native tool calling or the prompt+regex fallback.
         Callers (both _run() branches) never need to know which mode
         produced the result.
+
+        `allow_tools=False` (used for the forced-final iteration of the
+        iterative loop, see _run()) omits tool schemas from the request
+        entirely — for native providers this makes it structurally
+        impossible for the model to request a tool on this call, guaranteeing
+        a plain-text response instead of another tool-call attempt.
         """
         native = self.provider.supports_native_tools
-        tool_schemas = [tool_to_schema(t) for t in self.tools.values()] if (native and self.tools) else None
+        offer_tools = allow_tools and bool(self.tools)
+        tool_schemas = [tool_to_schema(t) for t in self.tools.values()] if (native and offer_tools) else None
 
         result = self.provider.generate(
             prompt,
             tools=tool_schemas,
             output_schema=self._output_schema,
-            strict=not bool(self.tools),
+            strict=not offer_tools,
         )
 
-        if not native and not result.tool_calls and result.text:
+        if not native and offer_tools and not result.tool_calls and result.text:
             tool_call = self._maybe_parse_toolcall(result.text)
             if tool_call:
                 return GenerationResult(tool_calls=[tool_call])

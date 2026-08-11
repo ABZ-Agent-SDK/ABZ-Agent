@@ -242,12 +242,21 @@ Controlled by `max_iterations` (default `1`):
 
 Loops up to `max_iterations` times. On each pass:
 - The first iteration's prompt uses the real user message; every subsequent iteration's
-  prompt uses the literal string `"Continue."` plus a `TOOL RESULT (<tool>): <result>` line
-  appended to memory.
-- If the model calls a tool, it runs and the loop continues.
+  prompt uses the literal string `"Continue."`. Each tool call's result is recorded via
+  `Memory.remember("tool", ...)` and rendered back into the next prompt as a `[TOOL]: <result>`
+  line — this is how a later iteration "sees" what an earlier tool call returned.
+- If the model calls a tool, it runs and the loop continues — **except on the last available
+  iteration**, which does not offer any tools at all (no tool schemas sent to the provider,
+  no tool manifest in the prompt). This guarantees the loop's final attempt always produces a
+  plain-text answer instead of another tool-call request, so a normal "call a tool, then
+  summarize" workflow reliably finishes within its budget even if an earlier turn called the
+  wrong tool name or re-requested one. `max_iterations=2` is the smallest budget that supports
+  one tool call followed by a guaranteed final answer.
 - If the model emits plain text, the loop ends and that text is the final `AgentResult.content`.
-- If `max_iterations` is exhausted without the model producing a plain-text answer, the
-  result is the last step, prefixed with `"Reached iteration limit without final answer.\n\n"`.
+- The `"Reached iteration limit without final answer.\n\n"` fallback still exists as a safety
+  net, but for the two shipped providers (Gemini, Groq — both native tool-calling) it's no
+  longer reachable via "the model kept calling tools" once `max_iterations >= 2`, since the
+  last iteration can't request a tool anymore.
 
 ```python
 agent = Agent(

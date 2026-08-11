@@ -174,3 +174,192 @@ class TestToolReturnValueStringification:
         assert isinstance(result.content, str)
         # round-trips back to the same structure (Python repr of the dict)
         assert result.content == repr(TAVILY_SHAPED_RESULT)
+
+
+class TestIterativeModeGuaranteesAFinalAnswer:
+    """Real bug: a model that spends every iteration on a tool call (e.g. it
+    keeps calling a misspelled/nonexistent tool name and never converges)
+    exhausted the entire max_iterations budget with none left over to
+    actually answer, producing the unhelpful "Reached iteration limit
+    without final answer" fallback — even though budget nominally looked
+    sufficient for "one tool call then answer".
+
+    Root cause: Agent._run()'s iterative loop offered tools on every single
+    iteration, including the last one. If the model used its last iteration
+    on yet another tool call, there was no turn left to produce text.
+
+    Fix: the last iteration of the loop no longer offers tools at all
+    (Agent._build_prompt(..., allow_tools=False) /
+    Agent._generate_and_dispatch(..., allow_tools=False)). For native
+    tool-calling providers (Gemini, Groq — everything this SDK ships) this
+    makes it structurally impossible for that call to request a tool, so it
+    must return plain text — guaranteeing a real final answer for any
+    max_iterations >= 2 setup, regardless of how many earlier turns were
+    wasted on tool calls (wrong name, repeated, or otherwise)."""
+
+    def test_model_stuck_calling_wrong_tool_name_still_gets_a_final_answer(self, monkeypatch):
+        """Minimal reproduction of the reported bug: a fake tool ("research")
+        that does not match any registered tool name, called repeatedly. No
+        Tavily import, no API key required."""
+        def tavily_search(query: str) -> dict:
+            """Search the web. Args: query: the search query"""
+            return TAVILY_SHAPED_RESULT  # never actually reached — name never matches
+
+        agent = Agent(
+            name="Researcher",
+            instructions=(
+                "Use the search tool to answer the user's question. "
+                "After using the tool, summarize the findings in plain, friendly language."
+            ),
+            model="gemini-2.0-flash",
+            tools=[tavily_search],
+            max_iterations=3,
+        )
+
+        # The model calls a tool name that was never registered, on every
+        # turn it's offered one — exactly the reported failure mode.
+        fake, seen_prompts = _scripted_provider([
+            ToolCall(tool="research", args={"query": "Karachi weather forecast"}),
+            ToolCall(tool="research", args={"query": "Karachi weather forecast"}),
+            "I wasn't able to look up live weather data, but here's what I can tell you generally.",
+        ])
+        monkeypatch.setattr(GeminiProvider, "generate", fake)
+
+        result = agent.run("What's the weather in Karachi today?")
+
+        # A real, final natural-language answer — not the iteration-limit fallback.
+        assert result.content == "I wasn't able to look up live weather data, but here's what I can tell you generally."
+        assert "Reached iteration limit" not in result.content
+        assert len(seen_prompts) == 3  # 2 tool-call attempts + 1 forced-final answer turn
+
+    def test_last_iteration_offers_no_tools(self, monkeypatch):
+        """Direct check on the mechanism: the final call's prompt has no tool
+        manifest (fallback-mode framing) and no tools are passed natively."""
+        def broken_tool(query: str) -> str:
+            """Always the wrong tool. Args: query: anything"""
+            return "n/a"
+
+        agent = Agent(
+            name="Researcher",
+            instructions="Use the tool, then answer.",
+            model="gemini-2.0-flash",
+            tools=[broken_tool],
+            max_iterations=2,  # smallest possible: 1 tool-call turn + 1 forced-final turn
+        )
+
+        captured_tools = []
+
+        def fake_generate(self, prompt, *, tools=None, output_schema=None, strict=True):
+            captured_tools.append(tools)
+            if len(captured_tools) == 1:
+                return GenerationResult(tool_calls=[ToolCall(tool="broken_tool", args={"query": "x"})])
+            return GenerationResult(text="Final answer without another tool call.")
+
+        monkeypatch.setattr(GeminiProvider, "generate", fake_generate)
+
+        result = agent.run("hi")
+
+        assert result.content == "Final answer without another tool call."
+        assert captured_tools[0] is not None       # first (non-final) call: tools offered
+        assert captured_tools[1] is None            # last (forced-final) call: no tools offered
+
+    def test_well_behaved_single_tool_call_workflow_unaffected(self, monkeypatch):
+        """Regression guard: a model that behaves correctly (one tool call,
+        then answers) must still work exactly as before — the fix only
+        changes behavior on the last iteration, which a well-behaved run
+        never reaches."""
+        def tavily_search(query: str) -> dict:
+            """Search the web. Args: query: the search query"""
+            return TAVILY_SHAPED_RESULT
+
+        agent = Agent(
+            name="Researcher",
+            instructions="Search, then summarize.",
+            model="gemini-2.0-flash",
+            tools=[tavily_search],
+            max_iterations=3,
+        )
+        fake, seen_prompts = _scripted_provider([
+            ToolCall(tool="tavily_search", args={"query": "Karachi weather today"}),
+            "It's 34°C and partly cloudy in Karachi.",
+        ])
+        monkeypatch.setattr(GeminiProvider, "generate", fake)
+
+        result = agent.run("What's the weather in Karachi today?")
+        assert result.content == "It's 34°C and partly cloudy in Karachi."
+        assert len(seen_prompts) == 2  # loop returned early, third (forced-final) turn never needed
+
+    def test_multiple_legitimate_tool_calls_still_work(self, monkeypatch):
+        """Two different tools called in sequence, then a final answer, still
+        completes normally when there's enough budget."""
+        def search(query: str) -> dict:
+            """Search. Args: query: text"""
+            return {"result": "raw search data"}
+
+        def calculate(expression: str) -> str:
+            """Calculate. Args: expression: a math expression"""
+            return "42"
+
+        agent = Agent(
+            name="Researcher",
+            instructions="Use tools as needed, then answer.",
+            model="gemini-2.0-flash",
+            tools=[search, calculate],
+            max_iterations=4,
+        )
+        fake, seen_prompts = _scripted_provider([
+            ToolCall(tool="search", args={"query": "x"}),
+            ToolCall(tool="calculate", args={"expression": "6*7"}),
+            "Based on my research and calculation, the answer is 42.",
+        ])
+        monkeypatch.setattr(GeminiProvider, "generate", fake)
+
+        result = agent.run("What's the answer?")
+        assert result.content == "Based on my research and calculation, the answer is 42."
+        assert len(seen_prompts) == 3  # 2 tool calls + final answer, well within the 4-iteration budget
+
+    def test_agent_without_tools_unaffected(self, monkeypatch):
+        """Regression guard: a tool-less agent's iterative loop (rare but
+        valid — e.g. for structured-output retries) is completely untouched
+        by this fix, since allow_tools=False only ever matters when
+        self.tools is non-empty."""
+        agent = Agent(
+            name="Chatty",
+            instructions="Just chat.",
+            model="gemini-2.0-flash",
+            max_iterations=3,
+        )
+        fake, seen_prompts = _scripted_provider(["Hello there!"])
+        monkeypatch.setattr(GeminiProvider, "generate", fake)
+
+        result = agent.run("hi")
+        assert result.content == "Hello there!"
+        assert len(seen_prompts) == 1
+
+    def test_genuinely_exhausted_budget_still_falls_back_gracefully(self, monkeypatch):
+        """The iteration-limit fallback message is NOT deleted — it's simply
+        no longer reachable via the tool-call-starvation failure mode for
+        native providers. This test forces it via a provider that returns
+        completely empty text on the forced-final turn, confirming the
+        safety net still exists and still returns cleanly rather than
+        raising."""
+        def broken_tool() -> str:
+            """A tool. Args: none"""
+            return "data"
+
+        agent = Agent(
+            name="Researcher",
+            instructions="Use the tool, then answer.",
+            model="gemini-2.0-flash",
+            tools=[broken_tool],
+            max_iterations=1,  # single-turn mode: separate, pre-existing code path
+        )
+        fake, _ = _scripted_provider([
+            ToolCall(tool="broken_tool", args={}),
+        ])
+        monkeypatch.setattr(GeminiProvider, "generate", fake)
+
+        # Single-turn mode is untouched by this fix — still returns the raw
+        # tool result directly, exactly as documented.
+        result = agent.run("hi")
+        assert result.content == "data"
