@@ -5,6 +5,22 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [0.5.5] - 2026-08-11
+
+### Fixed
+
+- **Iterative mode (`max_iterations > 1`) could exhaust its entire budget on
+  tool calls and never produce a final answer.** If the model spent every
+  iteration requesting a tool (e.g. repeatedly calling a misremembered tool
+  name), the loop fell through to an unhelpful `"Reached iteration limit
+  without final answer"` message showing the last raw tool-call JSON. The
+  loop's last iteration now omits tool schemas entirely, so for native
+  tool-calling providers (Gemini, Groq) it's structurally impossible for
+  that turn to request a tool — guaranteeing a real natural-language answer
+  for any `max_iterations >= 2` setup, regardless of how many earlier turns
+  were wasted on tool calls. A well-behaved run (tool call, then answer)
+  never reaches the changed code path and is completely unaffected.
+
 ## [0.5.4] - 2026-08-07
 
 ### Added
