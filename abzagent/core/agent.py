@@ -1,5 +1,6 @@
 from __future__ import annotations
 import os
+import sys
 import asyncio
 import inspect
 import json
@@ -264,6 +265,10 @@ class Agent:
         handoffs, future guardrails) works automatically since each turn is
         just a normal self.run(user_input) call.
         """
+        try:
+            sys.stdout.reconfigure(encoding="utf-8")  # avoid crashes on non-UTF-8 consoles (e.g. Windows cp1252)
+        except AttributeError:
+            pass
         print(f"🤖 {self.name} started. Type 'exit' to quit.")
         while True:
             try:

@@ -43,6 +43,14 @@ def _cmd_run(file: str) -> int:
     if not path.exists():
         print(f"File not found: {file}", file=sys.stderr)
         return 2
+    # `python file.py` automatically puts the script's own directory on
+    # sys.path, so sibling-module imports (e.g. `from tools import ...`)
+    # work. runpy.run_path() does NOT do this on its own, so without this,
+    # any script that imports a local file next to it breaks under
+    # `abz-agents run` while working fine under `python file.py`.
+    script_dir = str(path.resolve().parent)
+    if script_dir not in sys.path:
+        sys.path.insert(0, script_dir)
     # Execute as a script (__main__) so relative imports behave
     runpy.run_path(str(path), run_name="__main__")
     return 0
