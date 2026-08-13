@@ -5,6 +5,20 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [0.5.8] - 2026-08-13
+
+### Fixed
+
+- **`abz-agents run <file>` crashed with `ModuleNotFoundError` for any script that
+  imports a sibling module** (e.g. `from tools import ...`), while `python file.py`
+  worked fine for the exact same script. `runpy.run_path()`, unlike `python file.py`,
+  doesn't add the script's own directory to `sys.path` — `_cmd_run` now does this
+  explicitly before running the script.
+- **Interactive mode's startup banner (`agent.run(interactive=True)`) crashed on
+  Windows consoles using a legacy codepage** — the 🤖 emoji can't encode there. Fixed
+  with the same `stdout.reconfigure(encoding="utf-8")` pattern already used elsewhere
+  in this codebase.
+
 ## [0.5.7] - 2026-08-13
 
 ### Fixed

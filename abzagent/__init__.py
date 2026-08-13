@@ -112,7 +112,7 @@ __all__ = [
     "GroqProvider",
 ]
 
-__version__ = "0.5.7"
+__version__ = "0.5.8"
 __author__ = "Abu Bakar"
 __license__ = "MIT"
 
