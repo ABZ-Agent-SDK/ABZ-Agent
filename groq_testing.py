@@ -4,7 +4,7 @@ from abzagent import Agent , Memory
 agent = Agent(
     name="MyAgent",
     instructions="You are helpful.",
-    model="qwen/qwen3-32b"  # That's it!,
+    model="qwen/qwen3.6-27b"  # That's it!,
     memory = Memory()
 )
 

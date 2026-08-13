@@ -33,7 +33,7 @@ try:
     math_agent = Agent(
         name="Math Agent",
         instructions="You are an expert at math. You MUST use the 'add_numbers' tool for any addition task.",
-        model="gemini-2.0-flash", # A recommended model for reliable tool calling
+        model="gemini-2.5-flash", # A recommended model for reliable tool calling
         tools=[add],              # This is the list that was causing the error
         verbose=True              # Prints the internal thought steps
     )

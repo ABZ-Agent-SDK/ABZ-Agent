@@ -6,7 +6,7 @@ import os
 agent = Agent(
     name="GeminiAgent",
     instructions="You are a helpful AI assistant powered by Gemini.",
-    model="gemini-2.0-flash",  # Gemini model - SDK auto-detects provider
+    model="gemini-2.5-flash",  # Gemini model - SDK auto-detects provider
     api_key=os.getenv("GEMINI_API_KEY") 
 )
 

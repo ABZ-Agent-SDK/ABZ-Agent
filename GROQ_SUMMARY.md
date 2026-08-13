@@ -30,13 +30,13 @@ Your ABZ Agent SDK now supports **both Gemini and Groq** models!
 ### Automatic Provider Detection
 ```python
 # Groq is auto-detected for these models:
-model="qwen/qwen3-32b"        # ✅ Uses GroqProvider
+model="qwen/qwen3.6-27b"      # ✅ Uses GroqProvider
 model="llama-3.1-8b-instant"  # ✅ Uses GroqProvider
-model="mixtral-8x7b-32768"    # ✅ Uses GroqProvider
+model="openai/gpt-oss-120b"   # ✅ Uses GroqProvider
 
 # Gemini is auto-detected for these:
-model="gemini-2.0-flash"      # ✅ Uses GeminiProvider
-model="models/gemini-1.5-pro" # ✅ Uses GeminiProvider
+model="gemini-2.5-flash"      # ✅ Uses GeminiProvider
+model="gemini-flash-latest"   # ✅ Uses GeminiProvider
 ```
 
 ### Simple Usage
@@ -47,7 +47,7 @@ from abzagent import Agent
 agent = Agent(
     name="MyAgent",
     instructions="You are helpful.",
-    model="qwen/qwen3-32b"  # Groq model
+    model="qwen/qwen3.6-27b"  # Groq model
 )
 
 response = agent.run("Hello!")
@@ -57,7 +57,7 @@ response = agent.run("Hello!")
 
 ✅ **Groq Provider Test**: PASSED
 ```
-Response from qwen/qwen3-32b:
+Response from qwen/qwen3.6-27b:
 "Fast language models enable real-time, interactive experiences by reducing 
 latency in tasks like chatbots and code generation, enhancing user satisfaction..."
 ```
@@ -67,7 +67,7 @@ latency in tasks like chatbots and code generation, enhancing user satisfaction.
 1. **Zero Breaking Changes** - All existing Gemini code works unchanged
 2. **Automatic Detection** - No need to specify provider manually
 3. **Dual API Keys** - Supports both `GEMINI_API_KEY` and `GROQ_API_KEY`
-4. **15+ Groq Models** - Qwen, Llama, Mixtral, DeepSeek, Gemma
+4. **Live-verified Groq models** - Qwen, Llama, GPT-OSS, and more (see `abzagent/providers/model_types.py` for the exact current list — this file was written for an earlier release and is a point-in-time snapshot, not the source of truth)
 5. **Easy Switching** - Just change the model name
 
 ## Your .env File
@@ -92,4 +92,4 @@ GROQ_API_KEY= YOUR_GROQ_API_KEY_HERE
 
 **🎉 You can now use Groq models in your AI Agent SDK!**
 
-Just use `model="qwen/qwen3-32b"` (or any Groq model) when creating an Agent, and the SDK automatically handles everything else!
+Just use `model="qwen/qwen3.6-27b"` (or any Groq model) when creating an Agent, and the SDK automatically handles everything else!

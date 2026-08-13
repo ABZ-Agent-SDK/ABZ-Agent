@@ -69,7 +69,7 @@ def _patch_provider(monkeypatch):
 
 
 def make_agent(name, **kwargs):
-    return Agent(name=name, instructions=f"You are {name}.", model="gemini-2.0-flash", **kwargs)
+    return Agent(name=name, instructions=f"You are {name}.", model="gemini-2.5-flash", **kwargs)
 
 
 class TestTopLevelPackageExports:
@@ -894,7 +894,7 @@ class TestModelOverride:
         Gemini, regardless of the host's own provider."""
         agent = make_agent(
             "Bot",
-            input_guardrails=[InputGuardrail("Block math.", model="qwen/qwen3-32b")],
+            input_guardrails=[InputGuardrail("Block math.", model="qwen/qwen3.6-27b")],
         )
 
         def gemini_fail_if_classifier_called(self, prompt, **kwargs):
@@ -911,7 +911,7 @@ class TestModelOverride:
         result = agent.run("hi")
         assert result.content == "ok"
         assert len(groq_calls["classifier_prompts"]) == 1
-        assert groq_calls["classifier_self"][0].config.model == "qwen/qwen3-32b"
+        assert groq_calls["classifier_self"][0].config.model == "qwen/qwen3.6-27b"
 
 
 class TestSameGuardrailObjectAcrossMultipleAgents:

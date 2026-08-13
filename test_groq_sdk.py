@@ -13,7 +13,7 @@ print("=== Testing Groq Provider with ABZ Agent SDK ===\n")
 agent = Agent(
     name="GroqTestAgent",
     instructions="You are a helpful AI assistant. Be concise.",
-    model="qwen/qwen3-32b",  # Groq model - SDK auto-detects provider
+    model="qwen/qwen3.6-27b",  # Groq model - SDK auto-detects provider
     api_key=os.getenv("GROQ_API_KEY")
 )
 

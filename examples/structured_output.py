@@ -19,7 +19,7 @@ class CalendarEvent(BaseModel):
 agent = Agent(
     name="Event Extractor",
     instructions="Extract the calendar event described by the user.",
-    model="gemini-2.0-flash",  # swap for a Groq model — same code
+    model="gemini-2.5-flash",  # swap for a Groq model — same code
     output_type=CalendarEvent,
 )
 

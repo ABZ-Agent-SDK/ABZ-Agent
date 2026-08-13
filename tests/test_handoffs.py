@@ -67,7 +67,7 @@ def _patch_provider(monkeypatch):
 
 
 def make_agent(name, **kwargs):
-    return Agent(name=name, instructions=f"You are {name}.", model="gemini-2.0-flash", **kwargs)
+    return Agent(name=name, instructions=f"You are {name}.", model="gemini-2.5-flash", **kwargs)
 
 
 class TestSingleHandoff:
@@ -137,7 +137,7 @@ class TestMultipleHandoffs:
         planner = Agent(
             name="Planner",
             instructions="Route tasks to the correct specialist.",
-            model="gemini-2.0-flash",
+            model="gemini-2.5-flash",
             handoffs=[research_agent, writer_agent, review_agent],
         )
 
@@ -472,8 +472,8 @@ class TestInputFilter:
 class TestToolDescriptionAutoDerivation:
     def test_bare_agent_gets_rich_description_from_instructions(self):
         """Exact example from the request: zero extra config, still rich."""
-        writer = Agent(name="Writer", instructions="Write blogs and articles.", model="gemini-2.0-flash")
-        planner = Agent(name="Planner", instructions="Route tasks.", model="gemini-2.0-flash", handoffs=[writer])
+        writer = Agent(name="Writer", instructions="Write blogs and articles.", model="gemini-2.5-flash")
+        planner = Agent(name="Planner", instructions="Route tasks.", model="gemini-2.5-flash", handoffs=[writer])
 
         tool = planner.tools["transfer_to_writer"]
         assert "Write blogs and articles." in tool.description
@@ -491,13 +491,13 @@ class TestToolDescriptionAutoDerivation:
         def dynamic_instructions(ctx, agent):
             return "dynamic!"
 
-        dyn_target = Agent(name="Dyn", instructions=dynamic_instructions, model="gemini-2.0-flash")
+        dyn_target = Agent(name="Dyn", instructions=dynamic_instructions, model="gemini-2.5-flash")
         host = make_agent("Host", handoffs=[dyn_target])
         tool = host.tools["transfer_to_dyn"]
         assert tool.description == "Transfer the conversation to the 'Dyn' agent."
 
     def test_long_instructions_are_truncated_not_verbatim(self):
-        long_target = Agent(name="Long", instructions="x" * 500, model="gemini-2.0-flash")
+        long_target = Agent(name="Long", instructions="x" * 500, model="gemini-2.5-flash")
         host = make_agent("Host", handoffs=[long_target])
         tool = host.tools["transfer_to_long"]
         assert "x" * 500 not in tool.description
@@ -506,7 +506,7 @@ class TestToolDescriptionAutoDerivation:
 
     def test_truncation_does_not_cut_mid_word(self):
         words = ("handle billing invoices refunds and payment disputes " * 10).strip()
-        billing = Agent(name="Billing", instructions=words, model="gemini-2.0-flash")
+        billing = Agent(name="Billing", instructions=words, model="gemini-2.5-flash")
         host = make_agent("Host", handoffs=[billing])
         tool = host.tools["transfer_to_billing"]
         before_ellipsis = tool.description.split("...")[0]
@@ -515,7 +515,7 @@ class TestToolDescriptionAutoDerivation:
 
     def test_redundant_persona_prefix_is_stripped(self):
         billing = Agent(
-            name="Billing", instructions="You are Billing. Handle billing questions.", model="gemini-2.0-flash"
+            name="Billing", instructions="You are Billing. Handle billing questions.", model="gemini-2.5-flash"
         )
         host = make_agent("Host", handoffs=[billing])
         tool = host.tools["transfer_to_billing"]
@@ -524,7 +524,7 @@ class TestToolDescriptionAutoDerivation:
 
     def test_persona_prefix_stripping_is_case_insensitive(self):
         billing = Agent(
-            name="Billing", instructions="you are billing, handle billing questions.", model="gemini-2.0-flash"
+            name="Billing", instructions="you are billing, handle billing questions.", model="gemini-2.5-flash"
         )
         host = make_agent("Host", handoffs=[billing])
         tool = host.tools["transfer_to_billing"]
@@ -532,7 +532,7 @@ class TestToolDescriptionAutoDerivation:
 
     def test_persona_only_instructions_fall_back_to_original_text(self):
         """Stripping the persona clause must never leave an empty description."""
-        billing = Agent(name="Billing", instructions="You are Billing.", model="gemini-2.0-flash")
+        billing = Agent(name="Billing", instructions="You are Billing.", model="gemini-2.5-flash")
         host = make_agent("Host", handoffs=[billing])
         tool = host.tools["transfer_to_billing"]
         assert tool.description  # non-empty

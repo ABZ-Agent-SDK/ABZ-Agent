@@ -22,7 +22,7 @@ print("=== Testing Gemini Provider ===")
 gemini_agent = Agent(
     name="GeminiAgent",
     instructions="You are a helpful assistant.",
-    model="gemini-2.0-flash",  # Gemini model
+    model="gemini-2.5-flash",  # Gemini model
     api_key=os.getenv("GEMINI_API_KEY")
 )
 gemini_response = gemini_agent.run("Say hello in one sentence.")

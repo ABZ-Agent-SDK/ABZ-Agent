@@ -39,7 +39,7 @@ from abzagent import Agent
 agent = Agent(
     name="Assistant",
     instructions="You are a helpful assistant.",
-    model="gemini-2.0-flash",
+    model="gemini-2.5-flash",
 )
 
 result = agent.run("What is the capital of France?")
@@ -53,7 +53,7 @@ Agent(
     *,
     name: str,
     instructions: Union[str, InstructionsFn],
-    model: Optional[str] = "gemini-2.0-flash",
+    model: Optional[str] = "gemini-2.5-flash",
     tools: Optional[List[Union[Tool, Callable]]] = None,
     handoffs: Optional[List[Union[Agent, Handoff]]] = None,
     memory: Optional[Memory] = None,
@@ -76,7 +76,7 @@ All parameters are keyword-only.
 |---|---|---|---|
 | `name` | `str` | — | **Required.** Raises `ValueError` if empty. Used in the prompt (`[AGENT NAME]:`) and as the display name in handoff tool names. |
 | `instructions` | `str` \| `InstructionsFn` | — | **Required.** Raises `ValueError` if empty/blank string. The agent's system prompt, either static or computed per-call (see [Dynamic instructions](#dynamic-instructions)). |
-| `model` | `KnownModel \| str \| None` | `"gemini-2.0-flash"` | Any Gemini or Groq model id. `KnownModel` is a `Literal[...]` union that gives IDE autocomplete for documented model ids — any other string still works identically, nothing is validated at runtime (see [Model typing / autocomplete](#model-typing--autocomplete) and [Model resolution caveats](#model-resolution-caveats)). |
+| `model` | `KnownModel \| str \| None` | `"gemini-2.5-flash"` | Any Gemini or Groq model id. `KnownModel` is a `Literal[...]` union that gives IDE autocomplete for documented model ids — any other string still works identically, nothing is validated at runtime (see [Model typing / autocomplete](#model-typing--autocomplete) and [Model resolution caveats](#model-resolution-caveats)). |
 | `tools` | `list[Tool \| Callable]` | `None` | Mix of `Tool` instances and plain Python functions. Plain functions are auto-wrapped with `function_tool()`. See [Tools](tools.md). |
 | `handoffs` | `list[Agent \| Handoff]` | `None` | ⚠️ **Not currently functional** — see [Handoffs](#handoffs-not-currently-functional) below. |
 | `memory` | `Memory \| None` | `None` | If omitted, a fresh `Memory()` is created automatically. See [Memory](memory.md). |
@@ -102,19 +102,24 @@ All parameters are keyword-only.
 ### Provider auto-detection
 
 `Agent` never takes a `provider` argument — it infers Gemini vs. Groq purely from the
-`model` string, via `SDKConfig.detect_provider`:
+`model` string, via `SDKConfig.detect_provider`. It first checks for an exact match
+against the known-current Groq model list (`GroqModel`, kept in sync with the live Groq
+catalog — see [Model typing / autocomplete](#model-typing--autocomplete)); anything not
+in that list falls back to a substring heuristic:
 
 ```python
 groq_patterns = ["qwen/", "llama", "mixtral", "deepseek", "gemma2", "gemma-"]
 ```
 
-Any model name containing one of those substrings routes to `GroqProvider`; everything
-else routes to `GeminiProvider`.
+so a custom, fine-tuned, or brand-new Groq model with a recognizable family name still
+routes correctly even before it's added to the known list. Anything matching neither the
+exact list nor a pattern routes to `GeminiProvider`.
 
 ```python
-Agent(..., model="gemini-2.0-flash")          # -> Gemini
-Agent(..., model="qwen/qwen3-32b")             # -> Groq
-Agent(..., model="llama-3.3-70b-versatile")    # -> Groq
+Agent(..., model="gemini-2.5-flash")           # -> Gemini
+Agent(..., model="qwen/qwen3.6-27b")           # -> Groq (exact match)
+Agent(..., model="llama-3.3-70b-versatile")    # -> Groq (exact match)
+Agent(..., model="llama-4-some-new-variant")   # -> Groq (pattern fallback)
 ```
 
 ### Model typing / autocomplete
@@ -138,13 +143,21 @@ from abzagent import GeminiModel, GroqModel, KnownModel  # importable if you wan
                                                             # reuse the same typing yourself
 ```
 
+Every model in `GeminiModel`/`GroqModel` was confirmed against a real call to the
+provider's live API (not scraped docs, not memory) — see the docstring in
+`abzagent/providers/model_types.py` for the exact verification method. Because
+`Literal[...]` members must be static source text for a type checker to see them, this
+list can't be regenerated automatically and picked up by an IDE in real time; instead, run
+`python scripts/update_model_catalog.py` (needs `GEMINI_API_KEY`/`GROQ_API_KEY`)
+periodically to check it against the live catalogs and see what's drifted.
+
 ### Model resolution caveats
 
 Internally, `_resolve_model_param` does nothing more than:
 
 ```python
 if not model or str(model).strip().lower() == "auto":
-    return "gemini-2.0-flash"
+    return "gemini-2.5-flash"
 return str(model)
 ```
 
@@ -346,7 +359,7 @@ class CalendarEvent(BaseModel):
 agent = Agent(
     name="Extractor",
     instructions="Extract the calendar event described by the user.",
-    model="gemini-2.0-flash",
+    model="gemini-2.5-flash",
     output_type=CalendarEvent,
 )
 

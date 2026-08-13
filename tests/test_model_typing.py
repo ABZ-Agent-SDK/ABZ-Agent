@@ -44,7 +44,7 @@ class TestTypesAreExported:
 class TestKnownModelContents:
     def test_groq_model_contains_documented_models(self):
         members = get_args(GroqModel)
-        for expected in ("llama-3.3-70b-versatile", "llama-3.1-8b-instant", "qwen/qwen3-32b"):
+        for expected in ("llama-3.3-70b-versatile", "llama-3.1-8b-instant", "qwen/qwen3.6-27b"):
             assert expected in members
 
     def test_gemini_model_contains_the_agents_own_default(self):
@@ -52,7 +52,7 @@ class TestKnownModelContents:
         a recognized member of GeminiModel, or the SDK's own default
         wouldn't get autocomplete-recognized as a "known" model."""
         default = inspect.signature(Agent.__init__).parameters["model"].default
-        assert default == "gemini-2.0-flash"
+        assert default == "gemini-2.5-flash"
         assert default in get_args(GeminiModel)
 
     def test_gemini_model_uses_bare_names_not_models_prefixed(self):
@@ -130,8 +130,33 @@ class TestBackwardCompatibility:
 
     def test_agent_default_model_unchanged(self):
         agent = Agent(name="Bot", instructions="Be helpful.")
-        assert agent.model == "gemini-2.0-flash"
+        assert agent.model == "gemini-2.5-flash"
         assert SDKConfig.detect_provider(agent.model) == "gemini"
+
+
+class TestDetectProviderExactMatchFastPath:
+    """SDKConfig.detect_provider checks the known-current Groq model list
+    (exact match) before falling back to substring patterns — regression
+    guard for new-shape Groq model names that don't match any pattern."""
+
+    @pytest.mark.parametrize(
+        "model",
+        ["openai/gpt-oss-120b", "openai/gpt-oss-20b", "groq/compound", "groq/compound-mini", "allam-2-7b"],
+    )
+    def test_new_shape_groq_models_route_to_groq_via_exact_match(self, model):
+        assert SDKConfig.detect_provider(model) == "groq"
+
+    @pytest.mark.parametrize(
+        "model", ["qwen/qwen3.6-27b", "llama-3.3-70b-versatile", "llama-3.1-8b-instant"]
+    )
+    def test_pattern_matching_groq_models_still_route_to_groq(self, model):
+        assert SDKConfig.detect_provider(model) == "groq"
+
+    def test_unrecognized_model_still_defaults_to_gemini(self):
+        assert SDKConfig.detect_provider("some-custom-model") == "gemini"
+
+    def test_gemini_models_still_route_to_gemini(self):
+        assert SDKConfig.detect_provider("gemini-2.5-flash") == "gemini"
 
 
 class TestGroqCatalogRefactorRegression:
@@ -143,7 +168,7 @@ class TestGroqCatalogRefactorRegression:
         assert list_groq_models() == list(get_args(GroqModel))
 
     def test_order_preserved_first_entry_unchanged(self):
-        assert list_groq_models()[0] == "qwen/qwen3-32b"
+        assert list_groq_models()[0] == "llama-3.1-8b-instant"
 
     def test_best_default_unaffected(self):
         assert best_default("speed") == "llama-3.1-8b-instant"

@@ -11,7 +11,7 @@ from abzagent import Agent
 agent = Agent(
     name="Assistant",
     instructions="You are a helpful assistant.",
-    model="gemini-2.0-flash",
+    model="gemini-2.5-flash",
 )
 
 agent.run(interactive=True)

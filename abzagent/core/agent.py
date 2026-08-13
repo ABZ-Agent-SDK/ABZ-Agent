@@ -114,7 +114,7 @@ class Agent:
         *,
         name: str,
         instructions: Union[str, InstructionsFn],
-        model: Optional[Union[KnownModel, str]] = "gemini-2.0-flash",
+        model: Optional[Union[KnownModel, str]] = "gemini-2.5-flash",
         tools: Optional[List[Union[Tool, Callable[..., Any]]]] = None,
         handoffs: Optional[List[Union["Agent", Handoff]]] = None,
         memory: Optional[Memory] = None,
@@ -706,7 +706,7 @@ class Agent:
 
     def _resolve_model_param(self, *, model: Optional[str], include_experimental: bool, validate_model: bool) -> str:
         if not model or str(model).strip().lower() == "auto":
-            return "gemini-2.0-flash"
+            return "gemini-2.5-flash"
         return str(model)
 
 

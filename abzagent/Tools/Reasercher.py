@@ -52,7 +52,7 @@ def main():
             "- Use the web_search tool when the question needs current info.\n"
             "- Give a short summary (3 6 bullet points) and list sources as URLs.\n"
         ),
-        model="gemini-2.0-flash",
+        model="gemini-2.5-flash",
         tools=[web_search],
         memory=Memory(),
         verbose=False,       # keep output clean

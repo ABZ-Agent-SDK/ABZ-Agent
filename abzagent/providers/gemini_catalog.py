@@ -1,5 +1,7 @@
 from __future__ import annotations
-from typing import List, Dict, Optional, Tuple
+from typing import List, Dict, Optional, Tuple, get_args
+
+from .model_types import GeminiModel
 
 try:
     from google import genai
@@ -7,38 +9,12 @@ except Exception:
     genai = None  # allow import without SDK installed
 
 # ---- Static fallback list (used if a live API call isn't available) ----
-_FALLBACK_NAMES: List[str] = [
-    "models/gemini-1.5-pro-latest",
-    "models/gemini-1.5-pro-001",
-    "models/gemini-1.5-pro-002",
-    "models/gemini-1.5-pro",
-    "models/gemini-1.5-flash-latest",
-    "models/gemini-1.5-flash-001",
-    "models/gemini-1.5-flash-001-tuning",
-    "models/gemini-1.5-flash",
-    "models/gemini-1.5-flash-002",
-    "models/gemini-1.5-flash-8b",
-    "models/gemini-1.5-flash-8b-001",
-    "models/gemini-1.5-flash-8b-latest",
-    "models/gemini-1.5-flash-8b-exp-0827",
-    "models/gemini-1.5-flash-8b-exp-0924",
-    "models/gemini-2.5-pro-exp-03-25",
-    "models/gemini-2.0-flash-exp",
-    "models/gemini-2.0-flash",
-    "models/gemini-2.0-flash-001",
-    "models/gemini-2.0-flash-exp-image-generation",
-    "models/gemini-2.0-flash-lite-001",
-    "models/gemini-2.0-flash-lite",
-    "models/gemini-2.0-flash-lite-preview-02-05",
-    "models/gemini-2.0-flash-lite-preview",
-    "models/gemini-2.0-pro-exp",
-    "models/gemini-2.0-pro-exp-02-05",
-    "models/gemini-exp-1206",
-    "models/gemini-2.0-flash-thinking-exp-01-21",
-    "models/gemini-2.0-flash-thinking-exp",
-    "models/gemini-2.0-flash-thinking-exp-1219",
-    # keep embeddings/imagen/PaLM out of default picks
-]
+# Single source of truth is the GeminiModel Literal in model_types.py (see
+# its docstring for how it's verified against the live Gemini API) — derived
+# here by adding the "models/" resource-name prefix this module's live-API
+# discovery path uses, rather than maintained as a separate hand-written list
+# that could silently drift out of sync.
+_FALLBACK_NAMES: List[str] = [f"models/{name}" for name in get_args(GeminiModel)]
 
 # ---- Helpers ----
 
@@ -108,25 +84,23 @@ def best_default(goal: str = "balanced") -> str:
     Returns a sensible default.
     """
     models = list_gemini_models(include_experimental=False)
-    # quality: prefer pro (1.5-pro-002 then latest), else 2.0 flash if only option
+    # quality: prefer pro
     if goal == "quality":
-        for cand in ["models/gemini-1.5-pro-002", "models/gemini-1.5-pro-latest", "models/gemini-1.5-pro"]:
+        for cand in ["models/gemini-pro-latest"]:
             if cand in models:
                 return cand
-    # speed: prefer flash-8b or flash 2.0/1.5
+    # speed: prefer the flash-lite tier
     if goal == "speed":
-        for cand in ["models/gemini-1.5-flash-8b-001", "models/gemini-1.5-flash-8b-latest",
-                     "models/gemini-2.0-flash-001", "models/gemini-1.5-flash-002",
-                     "models/gemini-1.5-flash-latest", "models/gemini-1.5-flash"]:
+        for cand in ["models/gemini-flash-lite-latest", "models/gemini-3.1-flash-lite",
+                     "models/gemini-3.5-flash-lite"]:
             if cand in models:
                 return cand
-    # balanced: prefer 1.5-pro-002 then 1.5-flash-002
-    for cand in ["models/gemini-1.5-pro-002", "models/gemini-1.5-flash-002",
-                 "models/gemini-1.5-pro-latest", "models/gemini-1.5-flash-latest"]:
+    # balanced: prefer flash
+    for cand in ["models/gemini-2.5-flash", "models/gemini-flash-latest"]:
         if cand in models:
             return cand
     # Fallback
-    return models[0] if models else "models/gemini-1.5-pro"
+    return models[0] if models else "models/gemini-2.5-flash"
 
 def validate_or_suggest(chosen: str, include_experimental: bool = True) -> Tuple[bool, Optional[str], List[str]]:
     """

@@ -72,7 +72,7 @@ def _cmd_setup() -> int:
         default_model = "llama-3.3-70b-versatile"
     else:
         api_var = "GEMINI_API_KEY"
-        default_model = "gemini-2.0-flash"
+        default_model = "gemini-2.5-flash"
 
     # Ask questions
     api_key = _prompt_nonempty(f"Enter your {api_var} (leave blank to fill later): ", "")

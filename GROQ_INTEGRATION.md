@@ -20,7 +20,7 @@ import os
 agent = Agent(
     name="MyGroqAgent",
     instructions="You are a helpful assistant.",
-    model="qwen/qwen3-32b",  # Groq model - auto-detected
+    model="qwen/qwen3.6-27b",  # Groq model - auto-detected
     api_key=os.getenv("GROQ_API_KEY")
 )
 
@@ -38,7 +38,7 @@ import os
 agent = Agent(
     name="MyGeminiAgent",
     instructions="You are a helpful assistant.",
-    model="gemini-2.0-flash",  # Gemini model - auto-detected
+    model="gemini-2.5-flash",  # Gemini model - auto-detected
     api_key=os.getenv("GEMINI_API_KEY")
 )
 
@@ -59,28 +59,36 @@ The SDK will automatically use the appropriate key based on the model you select
 
 ## Supported Models
 
+> This list is a point-in-time snapshot. The source of truth is
+> `abzagent/providers/model_types.py` (`GeminiModel`/`GroqModel`), where every entry is
+> verified against the live provider API — see that file's docstring. Run
+> `python scripts/update_model_catalog.py` to check for drift.
+
 ### Groq Models
 
-Popular Groq models (auto-detected):
-- `qwen/qwen3-32b` - Qwen 3 32B
-- `qwen/qwen-2.5-72b-instruct` - Qwen 2.5 72B
-- `llama-3.3-70b-versatile` - Llama 3.3 70B
+Current Groq models (auto-detected):
 - `llama-3.1-8b-instant` - Llama 3.1 8B (fastest)
-- `mixtral-8x7b-32768` - Mixtral 8x7B
-- `deepseek-r1-distill-llama-70b` - DeepSeek R1
+- `llama-3.3-70b-versatile` - Llama 3.3 70B (highest quality)
+- `openai/gpt-oss-120b` - GPT-OSS 120B
+- `openai/gpt-oss-20b` - GPT-OSS 20B
+- `qwen/qwen3.6-27b` - Qwen 3.6 27B
+- `groq/compound` / `groq/compound-mini` - Agentic system models
+- `allam-2-7b` - Compact, Arabic-specialized
 
 ### Gemini Models
 
-Popular Gemini models (auto-detected):
-- `gemini-2.0-flash` - Gemini 2.0 Flash
-- `gemini-1.5-pro` - Gemini 1.5 Pro
-- `models/gemini-2.0-flash` - Full model path format
+Current Gemini models (auto-detected):
+- `gemini-2.5-flash` - Default. Fast and capable.
+- `gemini-flash-latest` / `gemini-flash-lite-latest` / `gemini-pro-latest` - Always-current aliases
+- `gemini-3.5-flash` / `gemini-3.5-flash-lite` / `gemini-3.6-flash` / `gemini-3.1-flash-lite` - Newer generations
 
 ## How Provider Detection Works
 
-The SDK automatically detects the provider based on model name patterns:
+The SDK checks for an exact match against the known-current Groq model list first, then
+falls back to model name patterns for anything else:
 
-**Groq Provider** is used when model name contains:
+**Groq Provider** is used for an exact match against the known Groq models above, or when
+the model name contains:
 - `qwen/`
 - `llama`
 - `mixtral`
@@ -112,7 +120,7 @@ groq_agent = Agent(
 gemini_agent = Agent(
     name="GeminiAgent",
     instructions="You are helpful.",
-    model="gemini-2.0-flash",
+    model="gemini-2.5-flash",
     api_key=os.getenv("GEMINI_API_KEY")
 )
 ```
@@ -140,7 +148,7 @@ Your existing code like this still works:
 agent = Agent(
     name="MyAgent",
     instructions="...",
-    model="gemini-2.0-flash"
+    model="gemini-2.5-flash"
 )
 ```
 

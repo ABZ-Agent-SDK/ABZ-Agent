@@ -63,7 +63,7 @@ def _make_search_agent(**kwargs):
     return Agent(
         name="Researcher",
         instructions="You are a research assistant. Use the search tool to answer questions.",
-        model="gemini-2.0-flash",
+        model="gemini-2.5-flash",
         tools=[tavily_search],
         **kwargs,
     )
@@ -211,7 +211,7 @@ class TestIterativeModeGuaranteesAFinalAnswer:
                 "Use the search tool to answer the user's question. "
                 "After using the tool, summarize the findings in plain, friendly language."
             ),
-            model="gemini-2.0-flash",
+            model="gemini-2.5-flash",
             tools=[tavily_search],
             max_iterations=3,
         )
@@ -242,7 +242,7 @@ class TestIterativeModeGuaranteesAFinalAnswer:
         agent = Agent(
             name="Researcher",
             instructions="Use the tool, then answer.",
-            model="gemini-2.0-flash",
+            model="gemini-2.5-flash",
             tools=[broken_tool],
             max_iterations=2,  # smallest possible: 1 tool-call turn + 1 forced-final turn
         )
@@ -275,7 +275,7 @@ class TestIterativeModeGuaranteesAFinalAnswer:
         agent = Agent(
             name="Researcher",
             instructions="Search, then summarize.",
-            model="gemini-2.0-flash",
+            model="gemini-2.5-flash",
             tools=[tavily_search],
             max_iterations=3,
         )
@@ -303,7 +303,7 @@ class TestIterativeModeGuaranteesAFinalAnswer:
         agent = Agent(
             name="Researcher",
             instructions="Use tools as needed, then answer.",
-            model="gemini-2.0-flash",
+            model="gemini-2.5-flash",
             tools=[search, calculate],
             max_iterations=4,
         )
@@ -326,7 +326,7 @@ class TestIterativeModeGuaranteesAFinalAnswer:
         agent = Agent(
             name="Chatty",
             instructions="Just chat.",
-            model="gemini-2.0-flash",
+            model="gemini-2.5-flash",
             max_iterations=3,
         )
         fake, seen_prompts = _scripted_provider(["Hello there!"])
@@ -350,7 +350,7 @@ class TestIterativeModeGuaranteesAFinalAnswer:
         agent = Agent(
             name="Researcher",
             instructions="Use the tool, then answer.",
-            model="gemini-2.0-flash",
+            model="gemini-2.5-flash",
             tools=[broken_tool],
             max_iterations=1,  # single-turn mode: separate, pre-existing code path
         )

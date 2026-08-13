@@ -46,7 +46,7 @@ from abzagent import Agent, Memory
 agent = Agent(
     name="Assistant",
     instructions="You are a helpful assistant.",
-    model="gemini-2.0-flash",
+    model="gemini-2.5-flash",
     memory=Memory(),
 )
 
@@ -87,12 +87,13 @@ The SDK supports **Google Gemini** and **Groq**. The provider is detected automa
 
 | Model | Notes |
 |---|---|
-| `gemini-2.0-flash` | Default. Fast and capable. |
-| `gemini-2.0-flash-lite` | Lightest 2.x variant |
-| `gemini-2.5-pro-exp-03-25` | Highest quality (experimental) |
-| `gemini-1.5-pro` | Stable high-quality |
-| `gemini-1.5-flash` | Stable fast |
-| `gemini-1.5-flash-8b` | Fastest / smallest |
+| `gemini-2.5-flash` | Default. Fast and capable. |
+| `gemini-flash-latest` | Always the current "latest" Flash release |
+| `gemini-flash-lite-latest` | Always the current "latest" Flash-Lite release |
+| `gemini-pro-latest` | Always the current "latest" Pro release |
+| `gemini-3.5-flash` / `gemini-3.5-flash-lite` | Gemini 3.5 generation |
+| `gemini-3.6-flash` | Gemini 3.6 generation |
+| `gemini-3.1-flash-lite` | Gemini 3.1 generation |
 
 Requires `GEMINI_API_KEY`.
 
@@ -100,26 +101,29 @@ Requires `GEMINI_API_KEY`.
 
 | Model | Notes |
 |---|---|
-| `qwen/qwen3-32b` | Balanced default for Groq |
-| `qwen/qwen-2.5-72b-instruct` | High quality |
-| `llama-3.3-70b-versatile` | Strong Llama 3.3 |
-| `llama-3.1-8b-instant` | Fastest Llama |
-| `mixtral-8x7b-32768` | Long context |
-| `deepseek-r1-distill-llama-70b` | Reasoning |
-| `gemma2-9b-it` | Compact |
+| `llama-3.1-8b-instant` | Fastest |
+| `llama-3.3-70b-versatile` | Highest quality |
+| `openai/gpt-oss-120b` | Large, high quality |
+| `openai/gpt-oss-20b` | Balanced |
+| `qwen/qwen3.6-27b` | Balanced default for Groq |
+| `groq/compound` | Agentic system model |
+| `groq/compound-mini` | Smaller agentic system model |
+| `allam-2-7b` | Compact, Arabic-specialized |
 
 Requires `GROQ_API_KEY`.
 
+Both tables are the exact set of models this SDK's model type Literals (`GeminiModel`/`GroqModel` in `abzagent/providers/model_types.py`) offer for IDE autocomplete — see that module's docstring for how the list is verified and kept current. Any other model string still works identically; these tables and the Literals are a convenience, not a whitelist. Run `python scripts/update_model_catalog.py` (needs your API keys) to check for drift against the live provider catalogs.
+
 ### Provider auto-detection
 
-Any model name containing `qwen/`, `llama`, `mixtral`, `deepseek`, `gemma2`, or `gemma-` is automatically routed to Groq. Everything else goes to Gemini.
+A model name is routed to Groq if it's an exact match for one of the known Groq models above, or if it contains `qwen/`, `llama`, `mixtral`, `deepseek`, `gemma2`, or `gemma-`. Everything else goes to Gemini.
 
 ```python
 # Gemini
-agent = Agent(..., model="gemini-2.0-flash")
+agent = Agent(..., model="gemini-2.5-flash")
 
 # Groq — detected automatically
-agent = Agent(..., model="qwen/qwen3-32b")
+agent = Agent(..., model="qwen/qwen3.6-27b")
 agent = Agent(..., model="llama-3.3-70b-versatile")
 ```
 
@@ -133,7 +137,7 @@ from abzagent import Agent, Memory
 agent = Agent(
     name="My Agent",                        # required
     instructions="You are helpful.",        # required — string or function
-    model="gemini-2.0-flash",               # optional, default: gemini-2.0-flash
+    model="gemini-2.5-flash",               # optional, default: gemini-2.5-flash
     tools=[...],                            # optional list of Tool or plain functions
     handoffs=[...],                         # optional list of Handoff objects
     memory=Memory(),                        # optional, default: fresh Memory()
@@ -194,7 +198,7 @@ from abzagent import Agent
 agent = Agent(
     name="ABZ Helper",
     instructions="Be concise and use tools efficiently.",
-    model="gemini-2.0-flash",
+    model="gemini-2.5-flash",
 )
 
 print(agent.run("What is 2 + 2?").content)
@@ -239,7 +243,7 @@ def get_weather(city: str) -> str:
 agent = Agent(
     name="WeatherBot",
     instructions="You help with weather questions.",
-    model="gemini-2.0-flash",
+    model="gemini-2.5-flash",
     tools=[get_weather],
 )
 
@@ -370,7 +374,7 @@ from abzagent.Tools.tools_math import MathTool
 agent = Agent(
     name="MathBot",
     instructions="You solve arithmetic problems.",
-    model="gemini-2.0-flash",
+    model="gemini-2.5-flash",
     tools=[MathTool()],
 )
 
@@ -395,7 +399,7 @@ from abzagent.Tools.tools_time import TimeTool
 agent = Agent(
     name="ClockBot",
     instructions="You tell the time.",
-    model="gemini-2.0-flash",
+    model="gemini-2.5-flash",
     tools=[TimeTool()],
 )
 
@@ -427,7 +431,7 @@ reasoning until it produces a final answer.
 agent = Agent(
     name="Researcher",
     instructions="Answer questions thoroughly. Use tools as needed.",
-    model="gemini-2.0-flash",
+    model="gemini-2.5-flash",
     tools=[search_tool, calculator_tool],
     max_iterations=5,
 )
@@ -459,7 +463,7 @@ def my_instructions(ctx: RunContextWrapper, agent) -> str:
 agent = Agent(
     name="PersonalBot",
     instructions=my_instructions,
-    model="gemini-2.0-flash",
+    model="gemini-2.5-flash",
 )
 
 result = agent.run("Hello!", context={"user_name": "Abu"})
@@ -501,7 +505,7 @@ class WeatherReport(BaseModel):
 agent = Agent(
     name="WeatherParser",
     instructions="Extract weather info as JSON.",
-    model="gemini-2.0-flash",
+    model="gemini-2.5-flash",
     output_type=WeatherReport,
 )
 
@@ -564,7 +568,7 @@ def no_profanity(ctx, agent, user_input: str) -> GuardrailFunctionOutput:
 agent = Agent(
     name="SafeBot",
     instructions="Be helpful.",
-    model="gemini-2.0-flash",
+    model="gemini-2.5-flash",
     input_guardrails=[no_profanity],
 )
 
@@ -591,7 +595,7 @@ def length_check(ctx, agent, output) -> GuardrailFunctionOutput:
 agent = Agent(
     name="ConciseBot",
     instructions="Be brief.",
-    model="gemini-2.0-flash",
+    model="gemini-2.5-flash",
     output_guardrails=[length_check],
 )
 ```
@@ -772,7 +776,7 @@ from abzagent import Agent
 sub_agent = Agent(
     name="Summarizer",
     instructions="You summarize long text into 3 bullet points.",
-    model="gemini-2.0-flash",
+    model="gemini-2.5-flash",
 )
 
 # Wrap it as a tool
@@ -784,7 +788,7 @@ summarizer_tool = sub_agent.as_tool(
 orchestrator = Agent(
     name="Orchestrator",
     instructions="You coordinate tasks. Use the summarize tool when needed.",
-    model="gemini-2.0-flash",
+    model="gemini-2.5-flash",
     tools=[summarizer_tool],
 )
 
@@ -802,7 +806,7 @@ Set `verbose=True` to print tool execution details to stdout as the agent runs. 
 agent = Agent(
     name="DebugAgent",
     instructions="Be helpful.",
-    model="gemini-2.0-flash",
+    model="gemini-2.5-flash",
     tools=[my_tool],
     verbose=True,
     max_iterations=4,
@@ -830,7 +834,7 @@ Select Model Provider [gemini/groq] (default: gemini): groq
 Enter your GROQ_API_KEY (leave blank to fill later): gsk_...
 Agent name [My Agent]: SupportBot
 Agent instructions [Be helpful and concise.]: You handle customer support.
-Model id [qwen/qwen3-32b]:
+Model id [qwen/qwen3.6-27b]:
 Starter file name [agent.py]:
 
 ✓ Wrote .env
@@ -858,7 +862,7 @@ abz-agents run examples/quickstart.py
 |---|---|
 | `GEMINI_API_KEY` | Required when using Gemini models |
 | `GROQ_API_KEY` | Required when using Groq models |
-| `ABZ_MODEL` | Default model override (default: `models/gemini-1.5-pro`) |
+| `ABZ_MODEL` | Default model override (default: `gemini-2.5-flash`) |
 | `ABZ_TEMPERATURE` | Sampling temperature (default: `0.4`) |
 | `ABZ_MAX_ITERS` | Default max iterations (default: `4`) |
 | `ABZ_VERBOSE` | Enable verbose mode by default (`1` = on, `0` = off) |

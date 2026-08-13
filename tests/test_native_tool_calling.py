@@ -15,7 +15,7 @@ from abzagent import Agent
 from abzagent.providers.gemini import GeminiProvider
 
 
-def _make_tool_agent(model="gemini-2.0-flash", **kwargs):
+def _make_tool_agent(model="gemini-2.5-flash", **kwargs):
     def lookup_price(item: str) -> str:
         """Look up a price. Args: item: the item name"""
         return f"${item} costs 10"
@@ -39,11 +39,11 @@ class TestNativeModePromptOmitsManifest:
         assert '{"tool":"<name>"' not in prompt  # JSON-blob teaching also omitted
 
     def test_handoff_hint_is_the_native_variant(self):
-        specialist = Agent(name="Specialist", instructions="Handle specialist work.", model="gemini-2.0-flash")
+        specialist = Agent(name="Specialist", instructions="Handle specialist work.", model="gemini-2.5-flash")
         agent = Agent(
             name="Router",
             instructions="Route work.",
-            model="gemini-2.0-flash",
+            model="gemini-2.5-flash",
             handoffs=[specialist],
         )
         prompt = agent._build_prompt("hi", effective_instructions=agent.instructions or "Route work.")
@@ -51,14 +51,14 @@ class TestNativeModePromptOmitsManifest:
         assert 'Return ONLY a JSON object for the tool call' not in prompt  # fallback hint's JSON instructions
 
     def test_native_hint_forbids_asking_for_confirmation(self):
-        specialist = Agent(name="Specialist", instructions="Handle specialist work.", model="gemini-2.0-flash")
-        agent = Agent(name="Router", instructions="Route work.", model="gemini-2.0-flash", handoffs=[specialist])
+        specialist = Agent(name="Specialist", instructions="Handle specialist work.", model="gemini-2.5-flash")
+        agent = Agent(name="Router", instructions="Route work.", model="gemini-2.5-flash", handoffs=[specialist])
         prompt = agent._build_prompt("hi", effective_instructions="Route work.")
         assert "do not ask the user for permission or confirmation" in prompt
 
     def test_native_hint_has_tie_breaker_rule(self):
-        specialist = Agent(name="Specialist", instructions="Handle specialist work.", model="gemini-2.0-flash")
-        agent = Agent(name="Router", instructions="Route work.", model="gemini-2.0-flash", handoffs=[specialist])
+        specialist = Agent(name="Specialist", instructions="Handle specialist work.", model="gemini-2.5-flash")
+        agent = Agent(name="Router", instructions="Route work.", model="gemini-2.5-flash", handoffs=[specialist])
         prompt = agent._build_prompt("hi", effective_instructions="Route work.")
         assert "pick the single best match yourself" in prompt
 
@@ -75,11 +75,11 @@ class TestFallbackModePromptIncludesManifest:
         assert '{"tool":"<name>","args":{...}}' in prompt
 
     def test_handoff_hint_is_the_fallback_variant_when_not_native(self, monkeypatch):
-        specialist = Agent(name="Specialist", instructions="Handle specialist work.", model="gemini-2.0-flash")
+        specialist = Agent(name="Specialist", instructions="Handle specialist work.", model="gemini-2.5-flash")
         agent = Agent(
             name="Router",
             instructions="Route work.",
-            model="gemini-2.0-flash",
+            model="gemini-2.5-flash",
             handoffs=[specialist],
         )
         monkeypatch.setattr(type(agent.provider), "supports_native_tools", False)
@@ -94,11 +94,11 @@ class TestHandoffHintPosition:
         """The handoff hint is deliberately the last thing before [USER]: —
         models weight the end of the prompt more heavily, so this positioning
         matters for getting weaker models to actually transfer."""
-        specialist = Agent(name="Specialist", instructions="Handle specialist work.", model="gemini-2.0-flash")
+        specialist = Agent(name="Specialist", instructions="Handle specialist work.", model="gemini-2.5-flash")
         agent = Agent(
             name="Router",
             instructions="Route work.",
-            model="gemini-2.0-flash",
+            model="gemini-2.5-flash",
             handoffs=[specialist],
         )
         agent.memory.remember("user", "MARKER_HISTORY_LINE")
@@ -112,7 +112,7 @@ class TestHandoffHintPosition:
         assert history_pos < hint_pos < final_user_message_pos
 
     def test_no_handoffs_no_hint_at_all(self):
-        agent = Agent(name="Solo", instructions="Be helpful.", model="gemini-2.0-flash")
+        agent = Agent(name="Solo", instructions="Be helpful.", model="gemini-2.5-flash")
         prompt = agent._build_prompt("hi", effective_instructions="Be helpful.")
         assert "ROUTER first" not in prompt
 
@@ -135,7 +135,7 @@ class TestGenerateAndDispatchToolsWiring:
         assert captured["tools"][0].parameters["type"] == "object"
 
     def test_no_tools_means_tools_arg_is_none(self, monkeypatch):
-        agent = Agent(name="Solo", instructions="Be helpful.", model="gemini-2.0-flash")
+        agent = Agent(name="Solo", instructions="Be helpful.", model="gemini-2.5-flash")
         captured = {}
 
         def fake_generate(self, prompt, *, tools=None, output_schema=None, strict=True):

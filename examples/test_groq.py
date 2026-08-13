@@ -13,7 +13,7 @@ load_dotenv()
 agent = Agent(
     name="GroqAgent",
     instructions="You are a helpful AI assistant powered by Groq.",
-    model="qwen/qwen3-32b",  # Groq model - SDK auto-detects provider
+    model="qwen/qwen3.6-27b",  # Groq model - SDK auto-detects provider
     api_key=os.getenv("GROQ_API_KEY")  # or set in .env file
 )
 

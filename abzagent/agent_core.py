@@ -19,7 +19,7 @@ class SuperDevAgent:
                 "Answer questions about the SDK using SDKKnowledgeTool. "
                 "You can also edit files and run commands."
             ),
-            model="gemini-2.0-flash",
+            model="gemini-2.5-flash",
             memory=self.memory,
             api_key=os.getenv("GEMINI_API_KEY")
         )

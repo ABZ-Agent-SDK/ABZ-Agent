@@ -299,7 +299,7 @@ class _ClassifierVerdict(BaseModel):
 # is a pure static-list lookup (no network call), so it can't drift out of
 # sync with that module.
 _FAST_MODEL_BY_PROVIDER: Dict[str, str] = {
-    "gemini": "gemini-2.0-flash",
+    "gemini": "gemini-2.5-flash",
     "groq": groq_catalog.best_default("speed"),
 }
 

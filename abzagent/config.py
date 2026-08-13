@@ -15,7 +15,7 @@ NOTE: The API key must be provided by the USER (never hardcode).
 
 The SDK automatically loads environment variables from a `.env` file, so you don't need to manually verify it.
     """
-    model: str = os.getenv("ABZ_MODEL", "models/gemini-1.5-pro")
+    model: str = os.getenv("ABZ_MODEL", "gemini-2.5-flash")
     api_key: str = ""
     provider: str = "gemini"  # "gemini" or "groq"
     temperature: float = float(os.getenv("ABZ_TEMPERATURE", "0.4"))
@@ -36,14 +36,28 @@ The SDK automatically loads environment variables from a `.env` file, so you don
         """
         Auto-detect provider based on model name.
         Returns "groq" or "gemini".
+
+        Checks the known-current Groq model list first (exact match, kept in
+        sync with GroqModel in providers/model_types.py — see that module's
+        docstring for how it's verified against Groq's live catalog), then
+        falls back to substring patterns for anything not in that list, so a
+        custom/future/unlisted Groq model with a recognizable family name
+        still routes correctly. Deferred import to avoid a circular import
+        with providers/__init__.py, which this module is imported from.
         """
+        from .providers.model_types import GroqModel
+        from typing import get_args
+
+        if model in get_args(GroqModel):
+            return "groq"
+
         model_lower = model.lower()
-        
-        # Groq model patterns
+
+        # Groq model family patterns (fallback for models not in the known list)
         groq_patterns = ["qwen/", "llama", "mixtral", "deepseek", "gemma2", "gemma-"]
         if any(pattern in model_lower for pattern in groq_patterns):
             return "groq"
-        
+
         # Default to Gemini for gemini models or unknown
         return "gemini"
 

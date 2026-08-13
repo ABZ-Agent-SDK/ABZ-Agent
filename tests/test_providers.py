@@ -16,7 +16,7 @@ from abzagent.providers.groq import GroqProvider
 
 
 def _make_gemini_provider():
-    cfg = SDKConfig(model="gemini-2.0-flash", api_key="fake", provider="gemini")
+    cfg = SDKConfig(model="gemini-2.5-flash", api_key="fake", provider="gemini")
     return GeminiProvider(cfg)
 
 

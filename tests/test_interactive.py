@@ -35,7 +35,7 @@ def agent(monkeypatch):
         return GenerationResult(text="canned response")
 
     monkeypatch.setattr(GeminiProvider, "generate", fake_generate)
-    return Agent(name="Assistant", instructions="Be helpful.", model="gemini-2.0-flash")
+    return Agent(name="Assistant", instructions="Be helpful.", model="gemini-2.5-flash")
 
 
 def _feed_input(monkeypatch, lines):
@@ -231,9 +231,9 @@ class TestInteractivePrintsRespondingAgent:
     def test_response_line_uses_last_agent_after_handoff(self, monkeypatch, capsys):
         from abzagent.core.tools import ToolCall
 
-        billing = Agent(name="Billing", instructions="Handle billing.", model="gemini-2.0-flash")
+        billing = Agent(name="Billing", instructions="Handle billing.", model="gemini-2.5-flash")
         support = Agent(
-            name="Support", instructions="Route to specialists.", model="gemini-2.0-flash", handoffs=[billing]
+            name="Support", instructions="Route to specialists.", model="gemini-2.5-flash", handoffs=[billing]
         )
 
         def fake_generate(self, prompt, *, tools=None, output_schema=None, strict=True):
