@@ -5,6 +5,42 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [0.5.7] - 2026-08-13
+
+### Fixed
+
+- **The model catalog was untrustworthy — some of it was never verified, and one entry
+  (the SDK's own default) was completely dead.** `GeminiModel`/`GroqModel`
+  (`abzagent.providers.model_types`) previously included models — DeepSeek among them —
+  that Groq doesn't even serve, inherited uncritically from a list that predates this
+  package. Rebuilt both from direct calls to each provider's real `/models` endpoint plus
+  an actual `generate`/`chat.completions.create` call per candidate, not docs scraping or
+  memory. Two Gemini models that are listed but 404 with "no longer available to new
+  users" for a real key (`gemini-2.5-pro`, `gemini-2.5-flash-lite`) were deliberately
+  excluded — that message means genuinely blocked for new callers, not a quota/tier 429.
+  Separately, and more seriously: `"gemini-2.0-flash"`, the SDK's own default `model=`
+  value, was fully retired by Google — every `Agent(...)` call omitting `model=` was
+  silently broken. Default is now `"gemini-2.5-flash"`, fixed everywhere it appeared
+  (`Agent.__init__`, `_resolve_model_param`, `SDKConfig`, the natural-language guardrails
+  classifier's fast-model default, the `abz-agents setup` CLI wizard).
+- **`SDKConfig.detect_provider()` misrouted newer Groq model names to Gemini.** Its
+  substring patterns (`"qwen/"`, `"llama"`, `"mixtral"`, ...) don't match newer model
+  name shapes like `"openai/gpt-oss-120b"` or `"groq/compound"`. Added an exact-match
+  fast path against the live-verified Groq model list, checked before the substring
+  fallback, so these route correctly without weakening the fallback for genuinely
+  custom/future models.
+- **`groq_catalog`/`gemini_catalog`'s `best_default()` referenced models that no longer
+  exist,** working only by fallback coincidence. Candidate lists now reference real,
+  live-verified models for each speed/quality/balanced tier.
+
+### Added
+
+- **`python scripts/update_model_catalog.py`** — calls both providers' live `/models`
+  endpoints and reports drift against the current `GeminiModel`/`GroqModel` Literals.
+  `Literal[...]` members must be static source text for IDE autocomplete to see them, so
+  this doesn't edit the catalog automatically; it's the documented way to check whether
+  it needs updating.
+
 ## [0.5.6] - 2026-08-12
 
 ### Added
