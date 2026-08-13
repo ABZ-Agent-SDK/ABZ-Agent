@@ -37,6 +37,7 @@ from .core.tools import Tool, ToolCall, ToolSchema, tool_to_schema, function_too
 from .core.output import AgentOutputSchema, ModelBehaviorError
 from .core.context import RunContextWrapper
 from .providers.base import GenerationResult, ModelProvider
+from .providers.model_types import GeminiModel, GroqModel, KnownModel
 from .core.handoffs import (
     Handoff,
     handoff,
@@ -84,6 +85,9 @@ __all__ = [
     "RunContextWrapper",
     "GenerationResult",
     "ModelProvider",
+    "GeminiModel",
+    "GroqModel",
+    "KnownModel",
     "Handoff",
     "handoff",
     "HandoffError",
@@ -108,7 +112,7 @@ __all__ = [
     "GroqProvider",
 ]
 
-__version__ = "0.5.5"
+__version__ = "0.5.6"
 __author__ = "Abu Bakar"
 __license__ = "MIT"
 

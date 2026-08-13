@@ -5,6 +5,23 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [0.5.6] - 2026-08-12
+
+### Added
+
+- **IDE autocomplete for `Agent(model=...)`.** New `abzagent.providers.model_types`
+  (`GeminiModel`, `GroqModel`, `KnownModel` — re-exported from `abzagent` and
+  `abzagent.core`) provides `Literal[...]` types listing each provider's documented
+  model ids. `Agent.__init__`'s `model` parameter is now typed
+  `Optional[Union[KnownModel, str]]`, so editors with type checking (Pylance/Pyright,
+  mypy) suggest known model ids while typing `model="`, without losing the ability to
+  pass any string — a new model release, a fine-tuned deployment, anything not yet
+  listed all continue to work exactly as before. Pure typing aid: nothing is validated
+  or enforced at runtime, and `SDKConfig.detect_provider()`'s model-string routing is
+  unchanged. `abzagent.providers.groq_catalog._GROQ_MODELS` now derives from
+  `GroqModel` via `typing.get_args()` instead of a separately maintained duplicate
+  list, so the two can't drift apart.
+
 ## [0.5.5] - 2026-08-11
 
 ### Fixed

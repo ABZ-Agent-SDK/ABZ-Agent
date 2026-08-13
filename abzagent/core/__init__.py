@@ -6,6 +6,7 @@ from .tools import Tool, ToolCall, ToolSchema, tool_to_schema, FunctionTool, fun
 from .output import AgentOutputSchema, ModelBehaviorError  # noqa: F401
 from .context import RunContextWrapper  # noqa: F401
 from ..providers.base import GenerationResult, ModelProvider  # noqa: F401
+from ..providers.model_types import GeminiModel, GroqModel, KnownModel  # noqa: F401
 
 # Optional re-exports (guard if not present to avoid circulars during partial installs)
 try:
@@ -57,6 +58,8 @@ __all__ = [
     "HandoffError", "CircularHandoffError", "MaxHandoffDepthExceededError", "HandoffInputData",
     # Providers
     "GenerationResult", "ModelProvider",
+    # Model typing (IDE autocomplete for Agent(model=...))
+    "GeminiModel", "GroqModel", "KnownModel",
     # Optional
     "input_guardrail", "output_guardrail",
     "tool_input_guardrail", "tool_output_guardrail",

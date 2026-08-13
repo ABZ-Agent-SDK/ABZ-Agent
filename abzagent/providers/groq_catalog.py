@@ -1,32 +1,14 @@
 # abzagent/providers/groq_catalog.py
 from __future__ import annotations
-from typing import List, Dict, Optional, Tuple
+from typing import List, Dict, Optional, Tuple, get_args
+
+from .model_types import GroqModel
 
 # ---- Static list of popular Groq models ----
-_GROQ_MODELS: List[str] = [
-    # Qwen models
-    "qwen/qwen3-32b",
-    "qwen/qwen-2.5-72b-instruct",
-    "qwen/qwen-2.5-32b-instruct",
-    "qwen/qwen-2.5-7b-instruct",
-    
-    # Llama models
-    "llama-3.3-70b-versatile",
-    "llama-3.1-70b-versatile",
-    "llama-3.1-8b-instant",
-    "llama3-70b-8192",
-    "llama3-8b-8192",
-    
-    # Mixtral models
-    "mixtral-8x7b-32768",
-    
-    # DeepSeek models
-    "deepseek-r1-distill-llama-70b",
-    
-    # Gemma models
-    "gemma2-9b-it",
-    "gemma-7b-it",
-]
+# Single source of truth is the GroqModel Literal in model_types.py (which
+# also gives IDE autocomplete on Agent(model=...)) — derived here via
+# get_args() rather than duplicated, so the two can't drift apart.
+_GROQ_MODELS: List[str] = list(get_args(GroqModel))
 
 def list_groq_models() -> List[str]:
     """Return list of available Groq models."""

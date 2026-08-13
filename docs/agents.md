@@ -76,7 +76,7 @@ All parameters are keyword-only.
 |---|---|---|---|
 | `name` | `str` | — | **Required.** Raises `ValueError` if empty. Used in the prompt (`[AGENT NAME]:`) and as the display name in handoff tool names. |
 | `instructions` | `str` \| `InstructionsFn` | — | **Required.** Raises `ValueError` if empty/blank string. The agent's system prompt, either static or computed per-call (see [Dynamic instructions](#dynamic-instructions)). |
-| `model` | `str \| None` | `"gemini-2.0-flash"` | Any Gemini or Groq model id. Falsy values or the literal string `"auto"` resolve to `"gemini-2.0-flash"`. Anything else is used as-is — there is currently no validation that the model id is real (see [Model resolution caveats](#model-resolution-caveats)). |
+| `model` | `KnownModel \| str \| None` | `"gemini-2.0-flash"` | Any Gemini or Groq model id. `KnownModel` is a `Literal[...]` union that gives IDE autocomplete for documented model ids — any other string still works identically, nothing is validated at runtime (see [Model typing / autocomplete](#model-typing--autocomplete) and [Model resolution caveats](#model-resolution-caveats)). |
 | `tools` | `list[Tool \| Callable]` | `None` | Mix of `Tool` instances and plain Python functions. Plain functions are auto-wrapped with `function_tool()`. See [Tools](tools.md). |
 | `handoffs` | `list[Agent \| Handoff]` | `None` | ⚠️ **Not currently functional** — see [Handoffs](#handoffs-not-currently-functional) below. |
 | `memory` | `Memory \| None` | `None` | If omitted, a fresh `Memory()` is created automatically. See [Memory](memory.md). |
@@ -115,6 +115,27 @@ else routes to `GeminiProvider`.
 Agent(..., model="gemini-2.0-flash")          # -> Gemini
 Agent(..., model="qwen/qwen3-32b")             # -> Groq
 Agent(..., model="llama-3.3-70b-versatile")    # -> Groq
+```
+
+### Model typing / autocomplete
+
+`model=` is typed as `Optional[Union[KnownModel, str]]`, where `KnownModel` (from
+`abzagent.providers.model_types`, re-exported from `abzagent`/`abzagent.core`) is a
+`Literal[...]` union of `GeminiModel` and `GroqModel` — each provider's own list of
+documented model ids, matching the tables above. In an editor with type checking
+(Pylance/Pyright, mypy), typing `Agent(..., model="` inside the quotes offers those ids
+as autocomplete suggestions.
+
+This is a **pure typing aid** — nothing is enforced at runtime. `Union[KnownModel, str]`
+still accepts any string, so a brand-new model release, a fine-tuned deployment, or
+anything not yet in the list works exactly as before; there is no validation and no
+behavior change. `GeminiModel`/`GroqModel` are separate, provider-owned `Literal`s (not
+one shared list) specifically so a new provider can be added later by introducing one
+more `Literal` and folding it into `KnownModel`, without touching `Agent` itself.
+
+```python
+from abzagent import GeminiModel, GroqModel, KnownModel  # importable if you want to
+                                                            # reuse the same typing yourself
 ```
 
 ### Model resolution caveats

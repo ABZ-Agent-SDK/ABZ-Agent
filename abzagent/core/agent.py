@@ -21,6 +21,7 @@ from .memory import Memory
 from .tools import Tool, ToolCall, ToolSchema, tool_to_schema, function_tool
 from .output import AgentOutputSchema, ModelBehaviorError
 from .context import RunContextWrapper
+from ..providers.model_types import KnownModel
 
 # optional handoffs import
 try:
@@ -113,7 +114,7 @@ class Agent:
         *,
         name: str,
         instructions: Union[str, InstructionsFn],
-        model: Optional[str] = "gemini-2.0-flash",
+        model: Optional[Union[KnownModel, str]] = "gemini-2.0-flash",
         tools: Optional[List[Union[Tool, Callable[..., Any]]]] = None,
         handoffs: Optional[List[Union["Agent", Handoff]]] = None,
         memory: Optional[Memory] = None,
